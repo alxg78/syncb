@@ -61,7 +61,12 @@ declare -i ENLACES_ERRORES=0
 declare -i ENLACES_DETECTADOS=0
 declare -i ARCHIVOS_BORRADOS=0
 
+# tiempo
 SECONDS=0
+
+# Configuración de locking
+LOCK_FILE="${TMPDIR:-/tmp}/sync_bidireccional.lock"
+LOCK_TIMEOUT=3600  # Tiempo máximo de bloqueo en segundos (1 hora)
 
 # Temp files to cleanup
 TEMP_FILES=()
@@ -240,7 +245,8 @@ mostrar_ayuda() {
     echo "  --overwrite        Sobrescribe todos los archivos en destino (no usa --update)"
     echo "  --checksum         Fuerza comparación con checksum (más lento)"  
     echo "  --bwlimit KB/s     Limita la velocidad de transferencia (ej: 1000 para 1MB/s)"
-    echo "  --timeout MINUTOS    Límite de tiempo por operación (default: 30)"
+    echo "  --timeout MINUTOS  Límite de tiempo por operación (default: 30)"
+    echo "  --force-unlock     Forzando eliminación de lock"      
     echo "  --help             Muestra esta ayuda"
     echo ""
     echo "Archivos de configuración:"
@@ -268,6 +274,7 @@ mostrar_ayuda() {
     echo "  sync_bidireccional.sh --subir --overwrite  # Sobrescribe todos los archivos"
     echo "  sync_bidireccional.sh --subir --bwlimit 1000  # Sincronizar subiendo con límite de 1MB/s" 
     echo "  sync_bidireccional.sh --bajar --item Documentos/ --timeout 10  # Timeout corto de 10 minutos para una operación rápida"
+    echo "  sync_bidireccional.sh --force-unlock   # Forzar desbloqueo si hay un lock obsoleto"
 }
 
 # Función para verificar si pCloud está montado
@@ -576,6 +583,51 @@ verificar_espacio_disco() {
     return 0
 }
 
+# Función para obtener información del proceso dueño del lock
+obtener_info_proceso_lock() {
+    local pid=$1
+    if ps -p $pid > /dev/null 2>&1; then
+        echo "Dueño del lock: PID $pid, Comando: $(ps -p $pid -o comm=), Iniciado: $(ps -p $pid -o lstart=)"
+    else
+        echo "Dueño del lock: PID $pid (proceso ya terminado)"
+    fi
+}
+
+# Función para establecer el lock
+establecer_lock() {
+    if [ -f "$LOCK_FILE" ]; then
+        local lock_pid=$(head -n 1 "$LOCK_FILE" 2>/dev/null)
+        
+        if ps -p "$lock_pid" > /dev/null 2>&1; then
+            log_error "Ya hay una ejecución en progreso (PID: $lock_pid)"
+            return 1
+        else
+            log_warn "Eliminando lock obsoleto del proceso $lock_pid"
+            rm -f "$LOCK_FILE"
+        fi
+    fi
+    
+    echo "$$" > "$LOCK_FILE"
+    log_info "Lock establecido: $LOCK_FILE"
+    return 0
+}
+
+# Función para eliminar el lock
+eliminar_lock() {
+    if [ -f "$LOCK_FILE" ] && [ "$(head -n 1 "$LOCK_FILE" 2>/dev/null)" = "$$" ]; then
+        rm -f "$LOCK_FILE"
+        log_info "Lock eliminado"
+    fi
+}
+
+# Función específica para eliminar el lock
+eliminar_lock_final() {
+    if [ -f "$LOCK_FILE" ] && [ "$(head -n 1 "$LOCK_FILE" 2>/dev/null)" = "$$" ]; then
+        rm -f "$LOCK_FILE"
+        log_info "Lock eliminado"
+    fi
+}
+
 # =========================
 # Validación y utilidades rsync
 # =========================
@@ -615,48 +667,48 @@ generar_archivo_enlaces() {
     : > "$archivo_enlaces"
 
   registrar_enlace() {
-    local enlace="$1"
+		local enlace="$1"
 
-    # Solo enlaces simbólicos
-    [ -L "$enlace" ] || return
+		# Solo enlaces simbólicos
+		[ -L "$enlace" ] || return
 
-    # Columna 1: ruta del ENLACE relativa a $HOME sin usar realpath (no romper enlaces rotos/relativos)
-    local ruta_relativa="$enlace"
-    if [[ "$ruta_relativa" == "$LOCAL_DIR/"* ]]; then
-        ruta_relativa="${ruta_relativa#${LOCAL_DIR}/}"
-    else
-        ruta_relativa="${ruta_relativa#/}"
-    fi
+		# Columna 1: ruta del ENLACE relativa a $HOME sin usar realpath (no romper enlaces rotos/relativos)
+		local ruta_relativa="$enlace"
+		if [[ "$ruta_relativa" == "$LOCAL_DIR/"* ]]; then
+			ruta_relativa="${ruta_relativa#${LOCAL_DIR}/}"
+		else
+			ruta_relativa="${ruta_relativa#/}"
+		fi
 
-    # Columna 2: destino tal cual fue creado el enlace (puede ser relativo)
-    local destino
-    destino="$(readlink "$enlace" 2>/dev/null || true)"
+		# Columna 2: destino tal cual fue creado el enlace (puede ser relativo)
+		local destino
+		destino="$(readlink "$enlace" 2>/dev/null || true)"
 
-    # Validaciones: no escribir líneas incompletas
-    if [ -z "$ruta_relativa" ] || [ -z "$destino" ]; then
-        log_warn "enlace no válido u origen/destino vacío: $enlace"
-        return
-    fi
+		# Validaciones: no escribir líneas incompletas
+		if [ -z "$ruta_relativa" ] || [ -z "$destino" ]; then
+			log_warn "enlace no válido u origen/destino vacío: $enlace"
+			return
+		fi
 
-    # Si el destino empieza por $HOME (p.e. /home/jheras/...), lo sustituimos por /home/$USERNAME/...
-    if [[ "$destino" == "$HOME"* ]]; then
-        destino="/home/\$USERNAME${destino#$HOME}"
-    # Si el destino es otra /home/<otrousuario>/..., también lo convertimos a /home/$USERNAME/... 
-    elif [[ "$destino" == /home/* ]]; then
-        local _tmp="${destino#/home/}"   # quita el prefijo '/home/'
-        if [[ "$_tmp" == */* ]]; then
-            local _rest="${_tmp#*/}"     # quita el username restante
-            destino="/home/\$USERNAME/${_rest}"
-        else
-            destino="/home/\$USERNAME"
-        fi
-    fi
-    # -------------------------------------------------------------------------
+		# Si el destino empieza por $HOME (p.e. /home/jheras/...), lo sustituimos por /home/$USERNAME/...
+		if [[ "$destino" == "$HOME"* ]]; then
+			destino="/home/\$USERNAME${destino#$HOME}"
+		# Si el destino es otra /home/<otrousuario>/..., también lo convertimos a /home/$USERNAME/... 
+		elif [[ "$destino" == /home/* ]]; then
+			local _tmp="${destino#/home/}"   # quita el prefijo '/home/'
+			if [[ "$_tmp" == */* ]]; then
+				local _rest="${_tmp#*/}"     # quita el username restante
+				destino="/home/\$USERNAME/${_rest}"
+			else
+				destino="/home/\$USERNAME"
+			fi
+		fi
+		# -------------------------------------------------------------------------
 
-    printf "%s\t%s\n" "$ruta_relativa" "$destino" >> "$archivo_enlaces"
-    log_info "Registrado enlace: $ruta_relativa -> $destino"
-    ENLACES_DETECTADOS=$((ENLACES_DETECTADOS + 1))
-   }
+		printf "%s\t%s\n" "$ruta_relativa" "$destino" >> "$archivo_enlaces"
+		log_info "Registrado enlace: $ruta_relativa -> $destino"
+		ENLACES_DETECTADOS=$((ENLACES_DETECTADOS + 1))
+    }
 
     buscar_enlaces_en_directorio() {
 		local dir="$1"
@@ -1156,12 +1208,21 @@ while [[ $# -gt 0 ]]; do
         --timeout)
             [ -z "$2" ] && { log_error "--timeout requiere minutos"; exit 1; }
             TIMEOUT_MINUTES="$2"; shift 2;;
+        --force-unlock)
+            log_warn "Forzando eliminación de lock: $LOCK_FILE"
+            rm -f "$LOCK_FILE"
+            exit 0;;
         -h|--help)
             mostrar_ayuda; exit 0;;
         *)
             log_error "Opción desconocida: $1"; mostrar_ayuda; exit 1;;
     esac
 done
+
+# Establecer locking (si llegamos aquí, no es modo ayuda)
+if ! establecer_lock; then
+    exit 1
+fi
 
 # Validación final
 if [ -z "$MODO" ]; then
@@ -1178,6 +1239,7 @@ find_config_files
 verificar_archivos_configuracion
 inicializar_log
 
+# Limpieza de temporales y locks al salir
 # Limpieza de temporales al salir
 cleanup() {
     for tf in "${TEMP_FILES[@]:-}"; do
@@ -1191,6 +1253,9 @@ trap cleanup EXIT INT TERM
 
 sincronizar
 exit_code=$?
+
+# Eliminar el lock antes de mostrar el resumen
+eliminar_lock_final
 
 echo ""
 mostrar_estadísticas
