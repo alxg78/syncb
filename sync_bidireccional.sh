@@ -58,6 +58,7 @@ declare -i ARCHIVOS_TRANSFERIDOS=0
 declare -i ENLACES_CREADOS=0
 declare -i ENLACES_EXISTENTES=0
 declare -i ENLACES_ERRORES=0
+declare -i ENLACES_DETECTADOS=0 
 
 # Temp files to cleanup
 TEMP_FILES=()
@@ -497,42 +498,58 @@ generar_archivo_enlaces() {
     log_info "Generando archivo de enlaces simbólicos..."
     : > "$archivo_enlaces"
 
-    registrar_enlace() {
-        local enlace="$1"
-        # Solo enlaces simbólicos
-        [ -L "$enlace" ] || return
+  registrar_enlace() {
+    local enlace="$1"
 
-        # Columna 1: ruta del ENLACE relativa a $HOME sin usar realpath (no romper enlaces rotos/relativos)
-        local ruta_relativa="$enlace"
-        if [[ "$ruta_relativa" == "$LOCAL_DIR/"* ]]; then
-            ruta_relativa="${ruta_relativa#${LOCAL_DIR}/}"
+    # Solo enlaces simbólicos
+    [ -L "$enlace" ] || return
+
+    # Columna 1: ruta del ENLACE relativa a $HOME sin usar realpath (no romper enlaces rotos/relativos)
+    local ruta_relativa="$enlace"
+    if [[ "$ruta_relativa" == "$LOCAL_DIR/"* ]]; then
+        ruta_relativa="${ruta_relativa#${LOCAL_DIR}/}"
+    else
+        ruta_relativa="${ruta_relativa#/}"
+    fi
+
+    # Columna 2: destino tal cual fue creado el enlace (puede ser relativo)
+    local destino
+    destino="$(readlink "$enlace" 2>/dev/null || true)"
+
+    # Validaciones: no escribir líneas incompletas
+    if [ -z "$ruta_relativa" ] || [ -z "$destino" ]; then
+        log_warn "enlace no válido u origen/destino vacío: $enlace"
+        return
+    fi
+
+    # Si el destino empieza por $HOME (p.e. /home/jheras/...), lo sustituimos por /home/$USERNAME/...
+    if [[ "$destino" == "$HOME"* ]]; then
+        destino="/home/\$USERNAME${destino#$HOME}"
+    # Si el destino es otra /home/<otrousuario>/..., también lo convertimos a /home/$USERNAME/... 
+    elif [[ "$destino" == /home/* ]]; then
+        local _tmp="${destino#/home/}"   # quita el prefijo '/home/'
+        if [[ "$_tmp" == */* ]]; then
+            local _rest="${_tmp#*/}"     # quita el username restante
+            destino="/home/\$USERNAME/${_rest}"
         else
-            # Fallback si no cuelga de $HOME
-            ruta_relativa="${ruta_relativa#/}"
+            destino="/home/\$USERNAME"
         fi
+    fi
+    # -------------------------------------------------------------------------
 
-        # Columna 2: destino tal cual fue creado el enlace (puede ser relativo)
-        local destino
-        destino="$(readlink "$enlace" 2>/dev/null || true)"
-
-        # Validaciones: no escribir líneas incompletas
-        if [ -z "$ruta_relativa" ] || [ -z "$destino" ]; then
-            log_warn "enlace no válido u origen/destino vacío: $enlace"
-            return
-        fi
-
-        printf "%s\t%s\n" "$ruta_relativa" "$destino" >> "$archivo_enlaces"
-        log_info "Registrado enlace: $ruta_relativa -> $destino"
-    }
+    printf "%s\t%s\n" "$ruta_relativa" "$destino" >> "$archivo_enlaces"
+    log_info "Registrado enlace: $ruta_relativa -> $destino"
+    ENLACES_DETECTADOS=$((ENLACES_DETECTADOS + 1))
+   }
 
     buscar_enlaces_en_directorio() {
-        local dir="$1"
-        [ -d "$dir" ] || return
-        # -print0 para máxima robustez por si hay espacios/nuevas líneas raras en nombres
-        find "$dir" -type l -print0 2>/dev/null | while IFS= read -r -d '' enlace; do
-            registrar_enlace "$enlace"
-        done
-    }
+		local dir="$1"
+		[ -d "$dir" ] || return
+		# Usar redirección < <(...) para que el while se ejecute en el shell principal
+		while IFS= read -r -d '' enlace; do
+		    registrar_enlace "$enlace"
+		done < <(find "$dir" -type l -print0 2>/dev/null)
+	}
 
     if [ -n "$ITEM_ESPECIFICO" ]; then
         local ruta_completa="${LOCAL_DIR}/${ITEM_ESPECIFICO}"
@@ -567,6 +584,7 @@ generar_archivo_enlaces() {
         print_rsync_command "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"
         if rsync "${RSYNC_OPTS[@]}" "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"; then
             log_success "Archivo de enlaces sincronizado"
+            log_info "Enlaces detectados/guardados en meta: $ENLACES_DETECTADOS"
         else
             log_error "Error sincronizando archivo de enlaces"
             return 1
@@ -617,34 +635,41 @@ recrear_enlaces_desde_archivo() {
             mkdir -p "$dir_padre"
         fi
 
-        # Si ya existe y apunta a lo mismo (comparar con readlink SIN -f para respetar destino relativo)
+        # Expandir placeholders ($HOME, $USERNAME) antes de cualquier operación
+        local destino_para_ln
+        destino_para_ln=$(echo "$destino" | sed \
+          -e "s|\$HOME|$HOME|g" \
+          -e "s|\$USERNAME|$USER|g")
+
+        # Si ya existe y apunta a lo mismo (comparar con readlink SIN -f)
         if [ -L "$ruta_completa" ]; then
             local destino_actual
             destino_actual=$(readlink "$ruta_completa" 2>/dev/null || true)
-            if [ "$destino_actual" = "$destino" ]; then
-                log_info "Enlace ya existe y es correcto: $ruta_enlace -> $destino"
+
+            if [ "$destino_actual" = "$destino_para_ln" ]; then
+                log_info "Enlace ya existe y es correcto: $ruta_enlace -> $destino_para_ln"
+                ENLACES_EXISTENTES=$((ENLACES_EXISTENTES + 1))
                 continue
             fi
+            rm -f "$ruta_completa"
         fi
 
-	if [ $DRY_RUN -eq 1 ]; then
-	    log_info "SIMULACIÓN: ln -sfn '$destino' '$ruta_completa'"
-	    contador=$((contador + 1))
-	    ENLACES_CREADOS=$((ENLACES_CREADOS + 1))
-	else
-	    if ln -sfn "$destino" "$ruta_completa" 2>/dev/null; then
-		log_info "Creado enlace: $ruta_enlace -> $destino"
-		contador=$((contador + 1))
-		ENLACES_CREADOS=$((ENLACES_CREADOS + 1))
-	    else
-		log_error "Error creando enlace: $ruta_enlace -> $destino"
-		errores=$((errores + 1))
-		ENLACES_ERRORES=$((ENLACES_ERRORES + 1))
-	    fi
-	fi
-
-	# Si el enlace ya existía y apuntaba al destino correcto:
-	ENLACES_EXISTENTES=$((ENLACES_EXISTENTES + 1))
+        # Crear el enlace
+        if [ $DRY_RUN -eq 1 ]; then
+            log_info "SIMULACIÓN: ln -sfn '$destino_para_ln' '$ruta_completa'"
+            contador=$((contador + 1))
+            ENLACES_CREADOS=$((ENLACES_CREADOS + 1))
+        else
+            if ln -sfn "$destino_para_ln" "$ruta_completa" 2>/dev/null; then
+                log_info "Creado enlace: $ruta_enlace -> $destino_para_ln"
+                contador=$((contador + 1))
+                ENLACES_CREADOS=$((ENLACES_CREADOS + 1))
+            else
+                log_error "Error creando enlace: $ruta_enlace -> $destino_para_ln"
+                errores=$((errores + 1))
+                ENLACES_ERRORES=$((ENLACES_ERRORES + 1))
+            fi
+        fi
 
     done < "$archivo_enlaces_local"
 
@@ -657,6 +682,7 @@ recrear_enlaces_desde_archivo() {
 
     [ $DRY_RUN -eq 0 ] && rm -f "$archivo_enlaces_local"
 }
+
 
 # =========================
 # SINCRONIZACIÓN
@@ -744,31 +770,31 @@ sincronizar_elemento() {
     temp_output=$(mktemp)
     TEMP_FILES+=("$temp_output")
 
-    # Ejecutar rsync mostrando salida en tiempo real, guardando en log y capturando para análisis
-    local rc=0
+ 	# Ejecutar rsync mostrando salida en tiempo real, guardando en log y capturando para análisis
+	local rc=0
 
-    # Preparar el comando rsync (array para seguridad con espacios)
-    local RSYNC_CMD=(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino")
+	# Preparar el comando rsync (array para seguridad con espacios)
+	local RSYNC_CMD=(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino")
 
-    # Si tenemos timeout disponible, lo envolvemos; usamos tee para mostrar + log + capturar salida
-    if command -v timeout >/dev/null 2>&1; then
-        if command -v stdbuf >/dev/null 2>&1; then
-            # stdbuf para evitar buffering cuando se pipea
-            timeout 30m stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee >(tee "$temp_output")
-            rc=${PIPESTATUS[0]}
-        else
-            timeout 30m "${RSYNC_CMD[@]}" 2>&1 | tee >(tee "$temp_output")
-            rc=${PIPESTATUS[0]}
-        fi
-    else
-        if command -v stdbuf >/dev/null 2>&1; then
-            stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee >(tee "$temp_output")
-            rc=${PIPESTATUS[0]}
-        else
-            "${RSYNC_CMD[@]}" 2>&1 | tee >(tee "$temp_output")
-            rc=${PIPESTATUS[0]}
-        fi
-    fi
+	# Ejecutar rsync y guardar salida en temp_output, sin duplicar
+	if command -v timeout >/dev/null 2>&1; then
+		if command -v stdbuf >/dev/null 2>&1; then
+		    # stdbuf evita buffering, tee muestra en pantalla y guarda en archivo
+		    timeout 30m stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
+		    rc=${PIPESTATUS[0]}
+		else
+		    timeout 30m "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
+		    rc=${PIPESTATUS[0]}
+		fi
+	else
+		if command -v stdbuf >/dev/null 2>&1; then
+		    stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
+		    rc=${PIPESTATUS[0]}
+		else
+		    "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
+		    rc=${PIPESTATUS[0]}
+		fi
+	fi
 
     # Contar archivos creados y actualizados usando --itemize-changes
     CREADOS=$(grep '^>f' "$temp_output" | wc -l)
@@ -791,8 +817,8 @@ sincronizar_elemento() {
     # Comprobar resultado (rc contiene el exit code real de rsync/timeout)
     if [ $rc -eq 0 ]; then
         log_success "Sincronización completada: $elemento ($count archivos transferidos)"
-        log_info "  Archivos creados: $CREADOS"
-        log_info "  Archivos actualizados: $ACTUALIZADOS"
+        log_info "Archivos creados: $CREADOS"
+        log_info "Archivos actualizados: $ACTUALIZADOS"
         return 0
     else
         if [ $rc -eq 124 ]; then
@@ -988,6 +1014,7 @@ echo "Sincronización finalizada: $(date)"
 echo "Elementos sincronizados: $ARCHIVOS_SINCRONIZADOS"
 echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
 echo "Modo dry-run: $([ $DRY_RUN -eq 1 ] && echo 'Sí' || echo 'No')"
+echo "Enlaces detectados/guardados: $ENLACES_DETECTADOS"
 echo "Enlaces creados: $ENLACES_CREADOS"
 echo "Enlaces existentes: $ENLACES_EXISTENTES"
 echo "Enlaces con errores: $ENLACES_ERRORES"
