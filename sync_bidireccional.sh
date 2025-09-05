@@ -61,6 +61,8 @@ declare -i ENLACES_ERRORES=0
 declare -i ENLACES_DETECTADOS=0
 declare -i ARCHIVOS_BORRADOS=0
 
+SECONDS=0
+
 # Temp files to cleanup
 TEMP_FILES=()
 
@@ -464,6 +466,39 @@ construir_opciones_rsync() {
     if [ -n "$EXCLUSIONES" ] && [ -f "$EXCLUSIONES" ]; then
         RSYNC_OPTS+=(--exclude-from="$EXCLUSIONES")
     fi
+}
+
+# Función para mostrar estadísticas completas
+mostrar_estadísticas() {
+    local tiempo_total=$SECONDS
+    local horas=$((tiempo_total / 3600))
+    local minutos=$(( (tiempo_total % 3600) / 60 ))
+    local segundos=$((tiempo_total % 60))
+    
+    echo ""
+    echo "=========================================="
+    echo "RESUMEN DE SINCRONIZACIÓN"
+    echo "=========================================="
+    echo "Elementos procesados: $ARCHIVOS_SINCRONIZADOS"
+    echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
+    [ $DELETE -eq 1 ] && echo "Archivos borrados: $ARCHIVOS_BORRADOS"
+    echo "Enlaces manejados: $((ENLACES_CREADOS + ENLACES_EXISTENTES))"
+    echo "  - Enlaces creados: $ENLACES_CREADOS"
+    echo "  - Enlaces existentes: $ENLACES_EXISTENTES"
+    echo "  - Enlaces con errores: $ENLACES_ERRORES"
+    echo "Errores de sincronización: $ERRORES_SINCRONIZACION"
+    
+    if [ $tiempo_total -ge 3600 ]; then
+        echo "Tiempo total: ${horas}h ${minutos}m ${segundos}s"
+    elif [ $tiempo_total -ge 60 ]; then
+        echo "Tiempo total: ${minutos}m ${segundos}s"
+    else
+        echo "Tiempo total: ${segundos}s"
+    fi
+    
+    echo "Velocidad promedio: $((${ARCHIVOS_TRANSFERIDOS}/${tiempo_total:-1})) archivos/segundo"
+    echo "Modo: $([ $DRY_RUN -eq 1 ] && echo 'SIMULACIÓN' || echo 'EJECUCIÓN REAL')"
+    echo "=========================================="
 }
 
 # =========================
@@ -1061,18 +1096,23 @@ sincronizar
 exit_code=$?
 
 echo ""
-echo "=========================================="
-echo "Sincronización finalizada: $(date)"
-echo "Elementos sincronizados: $ARCHIVOS_SINCRONIZADOS"
-echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
-[ $DELETE -eq 1 ] && echo "Archivos borrados: $ARCHIVOS_BORRADOS"
-echo "Modo dry-run: $([ $DRY_RUN -eq 1 ] && echo 'Sí' || echo 'No')"
-echo "Enlaces detectados/guardados: $ENLACES_DETECTADOS"
-echo "Enlaces creados: $ENLACES_CREADOS"
-echo "Enlaces existentes: $ENLACES_EXISTENTES"
-echo "Enlaces con errores: $ENLACES_ERRORES"
-echo "Errores generales: $ERRORES_SINCRONIZACION"
-echo "Log: $LOG_FILE"
-echo "=========================================="
+mostrar_estadísticas
+
+# Mantener el log del resumen en el archivo de log también
+{
+    echo "=========================================="
+    echo "Sincronización finalizada: $(date)"
+    echo "Elementos sincronizados: $ARCHIVOS_SINCRONIZADOS"
+    echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
+    [ $DELETE -eq 1 ] && echo "Archivos borrados: $ARCHIVOS_BORRADOS"
+    echo "Modo dry-run: $([ $DRY_RUN -eq 1 ] && echo 'Sí' || echo 'No')"
+    echo "Enlaces detectados/guardados: $ENLACES_DETECTADOS"
+    echo "Enlaces creados: $ENLACES_CREADOS"
+    echo "Enlaces existentes: $ENLACES_EXISTENTES"
+    echo "Enlaces con errores: $ENLACES_ERRORES"
+    echo "Errores generales: $ERRORES_SINCRONIZACION"
+    echo "Log: $LOG_FILE"
+    echo "=========================================="
+} >> "$LOG_FILE"
 
 exit $exit_code
