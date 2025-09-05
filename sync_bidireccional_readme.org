@@ -1,73 +1,84 @@
-🔍 Análisis de la lógica
+#+TITLE: sync_bidireccional.sh
+#+AUTHOR: Tu Nombre
+#+DATE: 2025-09-05
+#+DESCRIPTION: Sincronización bidireccional entre directorio local y pCloud
 
-Modo de ejecución (--subir / --bajar)
+* Descripción
+Script de sincronización bidireccional entre un directorio local (normalmente $HOME) y un directorio de pCloud. Permite subir, bajar, simular operaciones, manejar enlaces simbólicos y aplicar reglas de exclusión.
 
-Correcto: impide usar ambos modos a la vez.
+* Características
+- Sincronización bidireccional (local ↔ pCloud)
+- Modo dry-run (simulación)
+- Eliminación de archivos obsoletos (--delete)
+- Manejo de enlaces simbólicos
+- Compatibilidad con backup de solo lectura
+- Logging detallado
+- Ajuste de permisos ejecutables
+- Comparación opcional con checksum
 
-Usa MODO como variable central, y la validación está bien implementada.
+* Requisitos
+- bash >= 4.0
+- rsync
+- curl (opcional para verificación de conectividad)
+- find, readlink, mktemp, stat
+- pCloud Drive montado
 
-Archivos de configuración
+* Configuración
+- `PCLOUD_MOUNT_POINT`: punto de montaje de pCloud
+- `LOCAL_DIR`: directorio local a sincronizar
+- `PCLOUD_BACKUP_COMUN`: ruta de backup común en pCloud
+- `PCLOUD_BACKUP_READONLY`: ruta de backup readonly
+- `LISTA_SINCRONIZACION`: archivo INI con rutas a sincronizar
+- `EXCLUSIONES`: archivo INI con rutas a excluir
 
-Se buscan en $SCRIPT_DIR y en pwd, lo cual da flexibilidad.
+* Opciones de línea de comando
+** Modos principales (obligatorio)
+- `--subir`      : sincroniza desde local → pCloud
+- `--bajar`      : sincroniza desde pCloud → local
 
-Si falta el archivo de exclusiones, da advertencia (no aborta, correcto).
+** Opciones secundarias
+- `--delete`     : elimina archivos en destino que no existen en origen
+- `--dry-run`    : simula la operación
+- `--item ELEMENTO`: sincroniza solo el elemento indicado
+- `--yes`        : no pide confirmación
+- `--backup-dir` : usa backup de solo lectura
+- `--overwrite`  : sobrescribe archivos existentes
+- `--checksum`   : fuerza comparación con checksum
+- `-h, --help`   : muestra ayuda
 
-Si falta la lista de sincronización, aborta salvo que se use --item.
+* Ejemplos de uso
+- Subir todo:
+  #+BEGIN_SRC sh
+  ./sync_bidireccional.sh --subir
+  #+END_SRC
 
-Verificación de pCloud
+- Bajar todo en modo simulación:
+  #+BEGIN_SRC sh
+  ./sync_bidireccional.sh --bajar --dry-run
+  #+END_SRC
 
-Bastante robusta:
+- Subir solo un directorio específico y eliminar archivos obsoletos:
+  #+BEGIN_SRC sh
+  ./sync_bidireccional.sh --subir --item documentos/ --delete --yes
+  #+END_SRC
 
-Verifica directorio vacío.
+- Sincronizar con backup de solo lectura:
+  #+BEGIN_SRC sh
+  ./sync_bidireccional.sh --bajar --backup-dir --yes
+  #+END_SRC
 
-Usa findmnt, mountpoint o mount.
+* Archivos de configuración
+- Lista de directorios:
+  - `sync_bidireccional_directorios.ini`
+  - `sync_bidireccional_directorios_<hostname>.ini`
+- Exclusiones:
+  - `sync_bidireccional_exclusiones.ini`
 
-Verifica existencia de subdirectorio de backup.
+* Logging
+- Archivo: `~/sync_bidireccional.log`
+- Contiene información de:
+  - Inicio y fin de sincronización
+  - Archivos transferidos, creados, actualizados, borrados
+  - Enlaces simbólicos detectados, creados, existentes, errores
+  - Comandos `rsync` ejecutados
 
-Incluso testea escritura con touch (salvo en readonly o dry-run). ✅
-
-Construcción de opciones rsync
-
-Se arma en array → evita problemas de espacios.
-
-Añade --update salvo que se use --overwrite.
-
-Maneja exclusiones desde archivo .ini saltando comentarios.
-
-Tiene validación extra (validate_rsync_opts) contra valores raros → buena medida de seguridad.
-
-Sincronización
-
-Revisa que el origen exista antes de lanzar rsync.
-
-Crea directorios destino si no existen (con soporte para dry-run).
-
-Maneja errores de rsync y los registra en log.
-
-Lógica limpia y clara.
-
-Enlaces simbólicos
-
-Se registran en archivo auxiliar (.sync_bidireccional_symlinks.meta).
-
-Se sincronizan al subir y se recrean al bajar.
-
-Soporta rutas relativas y evita romper enlaces inválidos.
-
-Bastante robusto, aunque dependiente de que readlink devuelva valores consistentes.
-
-Permisos ejecutables
-
-Solo aplica en --bajar.
-
-Usa find con patrones y chmod recursivo.
-
-Maneja rutas inexistentes mostrando advertencia.
-
-Logs
-
-Registra todo en ~/sync_bidireccional.log.
-
-Incluye fecha, modo, opciones, exclusiones, lista usada, etc.
-
-Correcto para depuración posterior.
