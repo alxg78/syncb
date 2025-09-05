@@ -983,6 +983,19 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
+# Verificación de argumentos duplicados (solo para opciones)
+declare -A seen_opts
+for arg in "$@"; do
+    # Solo verificar opciones (que comienzan con --)
+    if [[ "$arg" == --* ]]; then
+        if [[ -v seen_opts[$arg] ]]; then
+            log_error "Opción duplicada: $arg"
+            exit 1
+        fi
+        seen_opts["$arg"]=1
+    fi
+done
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --subir)
