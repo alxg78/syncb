@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Obtener el hostname de la máquina
 # Usar FQDN en lugar del nombre corto (cambio mínimo solicitado)
-HOSTNAME=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "")
+HOSTNAME=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "unknown-host")
 
 # Hostname de la maquina virtual de RTVA
 HOSTNAME_RTVA="feynman.rtva.dnf"
@@ -178,7 +178,7 @@ verificar_pcloud_montado() {
     # Verificar si el punto de montaje de pCloud existe
     if [ ! -d "$PCLOUD_MOUNT_POINT" ]; then
         echo "ERROR: El punto de montaje de pCloud no existe: $PCLOUD_MOUNT_POINT"
-        echo "Asegúrate de que pCloud Drive esté instalado и ejecutándose."
+        echo "Asegúrate de que pCloud Drive esté instalado y ejecutándose."
         exit 1
     fi
     
@@ -209,7 +209,7 @@ verificar_pcloud_montado() {
     fi
     
     # Verificación adicional con df
-    if ! df -P "$PCLOUD_MOUNT_POINT" | grep -q "pcloud"; then
+    if ! df -P "$PCLOUD_MOUNT_POINT" | grep -q "pCloud.fs"; then
         echo "ERROR: pCloud no está montado correctamente en $PCLOUD_MOUNT_POINT"
         exit 1
     fi
@@ -311,6 +311,11 @@ confirmar_ejecucion() {
 
 # Función para verificar y crear archivo de log
 inicializar_log() {
+    # Truncar log si supera 5MB
+    if [ -f "$LOG_FILE" ] && [ $(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0) -gt 5242880 ]; then
+        : > "$LOG_FILE"
+    fi
+
     touch "$LOG_FILE"
     chmod 644 "$LOG_FILE" 2>/dev/null
     {
@@ -696,9 +701,9 @@ sincronizar() {
     # Manejo de enlaces simbólicos
     if [ "$MODO" = "subir" ]; then
         # Generar y subir archivo de enlaces
-        tmp_links=$(mktemp "${TMPDIR:-/tmp}/sync_links.XXXXXXXXXX")
+        tmp_links=$(mktemp)
         TEMP_FILES+=("$tmp_links")
-        generar_archivo_enlaces "$tmp_links" || exit_code=1
+        generar_archivo_enlaces "$tmp_links"
     else
         # Recrear enlaces desde archivo
         recrear_enlaces_desde_archivo
