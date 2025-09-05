@@ -26,9 +26,7 @@ HOSTNAME_RTVA="feynman.rtva.dnf"
 LISTA_SINCRONIZACION=""
 EXCLUSIONES=""
 LOG_FILE="$HOME/sync_bidireccional.log"
-
-# Archivo para almacenar información de enlaces simbólicos
-SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"  
+SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"  # Archivo para almacenar información de enlaces simbólicos
 
 # Variables de control
 MODO=""
@@ -82,7 +80,7 @@ find_config_files() {
         # Para otros hostnames, usar el archivo por defecto
         
         # Primero buscar en el directorio del script
-        if [ -f "${SCRIPT_DIR}/${lista_por_defecto}" ]; then
+        if [ -f "${SCRIPT_DIR}/${lista_por_defecto" ]; then
             LISTA_SINCRONIZACION="${SCRIPT_DIR}/${lista_por_defecto}"
         elif [ -f "./${lista_por_defecto}" ]; then
             # Si no está en el directorio del script, buscar en el directorio actual
@@ -191,7 +189,7 @@ verificar_pcloud_montado() {
         fi
     fi
     
-    echo "✓ Verificación de pCloud: OK - El directorio está montado и accesible"
+    echo "✓ Verificación de pCloud: OK - El directorio está montado y accesible"
 }
 
 # Función para mostrar el banner informativo
@@ -314,15 +312,8 @@ verificar_archivos_configuracion() {
 
 # Función para construir opciones de rsync
 construir_opciones_rsync() {
-    #local opciones="-avh --checksum --progress"
-    #local opciones="-avh --checksum --progress --whole-file"
-    #local opciones="-avl --no-perms --no-owner --no-group --checksum --progress --whole-file" 
-    #local opciones="-av --no-perms --no-owner --no-group --checksum --progress --copy-links" 
-    #local opciones="-av --no-perms --no-owner --no-group --checksum --progress --whole-file --copy-links" 
-    # rsync -rv 
-    local opciones="--recursive --verbose --times --checksum --progress --whole-file --no-links" 
-
- 
+    local opciones="--recursive --verbose --times --checksum --progress --whole-file --no-links"
+    
     # Añadir --update si no estamos en modo sobrescritura
     if [ $OVERWRITE -eq 0 ]; then
         opciones="$opciones --update"
@@ -387,7 +378,12 @@ generar_archivo_enlaces() {
         
         # Obtener ruta relativa y destino
         local ruta_relativa=$(realpath --relative-to="${LOCAL_DIR}" "$enlace")
-        local destino=$(readlink "$enlace")
+        local destino=$(readlink -f "$enlace")
+        
+        # Si el destino está dentro del directorio local, hacerlo relativo
+        if [[ "$destino" == "${LOCAL_DIR}"* ]]; then
+            destino=$(realpath --relative-to="$(dirname "${LOCAL_DIR}/${ruta_relativa}")" "$destino")
+        fi
         
         # Registrar en el archivo
         echo -e "${ruta_relativa}\t${destino}" >> "$archivo_enlaces"
