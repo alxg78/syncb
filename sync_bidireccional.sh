@@ -110,7 +110,7 @@ mostrar_ayuda() {
     echo "Opciones SECUNDARIAS (opcionales):"
     echo "  --delete          Elimina en destino los archivos que no existan en origen (delete-delay)"
     echo "  --dry-run         Simula la operación sin hacer cambios reales"
-    echo "  --item ELEMENTO   Sincroniza solo el elemento especificado (archivo or directorio)"
+    echo "  --item ELEMENTO   Sincroniza solo el elemento especificado (archivo o directorio)"
     echo "  --yes             No pregunta confirmación, ejecuta directamente"
     echo "  --backup-dir      Usa el directorio de backup de solo lectura (pCloud Backup) en lugar de Backup_Comun"
     echo "  --overwrite       Sobrescribe todos los archivos en destino (no usa --update)"
@@ -155,8 +155,8 @@ verificar_pcloud_montado() {
     # Verificación más robusta: comprobar si pCloud está realmente montado
     # 1. Verificar si el directorio está vacío (puede indicar que no está montado)
     if [ -z "$(ls -A "$PCLOUD_MOUNT_POINT" 2>/dev/null)" ]; then
-        echo "ERROR: El directorio de pCloud está vacío: $PCLOUD_MOUNT_POoint"
-        echo "Esto sugiere que pCloud Drive no está montado correctamente."
+        echo "ERROR: El directorio de pCloud está vacío: $PCLOUD_MOUNT_POINT"
+        echo "Esto sugiere that pCloud Drive no está montado correctamente."
         exit 1
     fi
     
@@ -185,7 +185,6 @@ verificar_pcloud_montado() {
         else
             echo "ERROR: No se puede escribir en el directorio de pCloud: $PCLOUD_DIR"
             echo "Asegúrate de que pCloud Drive esté funcionando correctamente y tengas permisos de escritura."
-            exit 1
         fi
     fi
     
@@ -300,7 +299,7 @@ verificar_archivos_configuracion() {
         echo "Busca en:"
         echo "  - ${SCRIPT_DIR}/"
         echo "  - $(pwd)/"
-        echo "O crea un archivo con la lista de rutas a sincronizar or usa --item"
+        echo "O crea un archivo con la lista de rutas a sincronizar o usa --item"
         exit 1
     fi
     
@@ -533,7 +532,7 @@ sincronizar_elemento() {
         return 1
     fi
     
-    # Determinar si es directorio or archivo
+    # Determinar si es directorio o archivo
     if [ -d "$origen" ]; then
         origen="${origen}/"
         # Solo añadir barra al destino si es un directorio
@@ -624,7 +623,7 @@ sincronizar() {
     return $exit_code
 }
 
-# FUNCIÓN CORREGIDA PARA AJUSTAR PERMISOS DE EJECUCIÓN
+# FUNCIÓN PARA AJUSTAR PERMISOS DE EJECUCIÓN
 ajustar_permisos_ejecutables() {
     local directorio_base="${LOCAL_DIR}"
     local exit_code=0
