@@ -506,14 +506,23 @@ verificar_espacio_disco() {
     local needed_mb=${1:-100}  # MB mínimos por defecto: 100MB
     local available_mb
     local mount_point
-    
+    local tipo_operacion
+
     # Determinar el punto de montaje a verificar según el modo
     if [ "$MODO" = "subir" ]; then
         mount_point="$PCLOUD_MOUNT_POINT"
+        tipo_operacion="subida a pCloud"
     else
         mount_point="$LOCAL_DIR"
+        tipo_operacion="bajada desde pCloud"
     fi
-    
+
+    # Verificar que el punto de montaje existe
+    if [ ! -d "$mount_point" ]; then
+        log_warn "El punto de montaje $mount_point no existe, omitiendo verificación de espacio"
+        return 0
+    fi
+
     # Obtener espacio disponible de forma portable
     if [ "$(uname)" = "Darwin" ]; then
         # macOS
@@ -522,19 +531,20 @@ verificar_espacio_disco() {
         # Linux
         available_mb=$(df -m --output=avail "$mount_point" | awk 'NR==2 {print $1}')
     fi
-    
+
     # Validar que se obtuvo un valor numérico
     if ! [[ "$available_mb" =~ ^[0-9]+$ ]]; then
-        log_warn "No se pudo determinar el espacio disponible en $mount_point"
+        log_warn "No se pudo determinar el espacio disponible en $mount_point, omitiendo verificación"
         return 0  # Continuar a pesar de la advertencia
     fi
-    
+
     if [ "$available_mb" -lt "$needed_mb" ]; then
-        log_error "Espacio insuficiente en $mount_point. Disponible: ${available_mb}MB, Necesario: ${needed_mb}MB"
+        log_error "Espacio insuficiente para $tipo_operacion en $mount_point"
+        log_error "Disponible: ${available_mb}MB, Necesario: ${needed_mb}MB"
         return 1
     fi
-    
-    log_info "Espacio en disco verificado. Disponible: ${available_mb}MB en $mount_point"
+
+    log_info "Espacio en disco verificado para $tipo_operacion. Disponible: ${available_mb}MB"
     return 0
 }
 
@@ -950,6 +960,11 @@ sincronizar() {
     
     # Verificar conectividad con pCloud (solo advertencia)
     verificar_conectividad_pcloud
+    
+    # Verificar espacio en disco (al menos 500MB libres)
+	if [ $DRY_RUN -eq 0 ]; then
+		verificar_espacio_disco 500 || exit 1
+	fi
 
     # Preguntar confirmación antes de continuar (excepto en dry-run o si se usa --yes)
     [ $DRY_RUN -eq 0 ] && confirmar_ejecucion
@@ -1116,12 +1131,6 @@ fi
 verificar_dependencias
 find_config_files
 verificar_archivos_configuracion
-
-# Verificar espacio en disco (al menos 500MB libres)
-if [ $DRY_RUN -eq 0 ]; then
-    verificar_espacio_disco 500 || exit 1
-fi
-
 inicializar_log
 
 # Limpieza de temporales al salir
