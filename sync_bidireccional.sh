@@ -45,12 +45,14 @@ SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"
 MODO=""
 DRY_RUN=0
 DELETE=0
-ITEM_ESPECIFICO=""
 YES=0
 OVERWRITE=0
 BACKUP_DIR_MODE="comun"
 VERBOSE=0
 USE_CHECKSUM=0
+BW_LIMIT=""
+declare -a ITEMS_ESPECIFICOS=()
+declare -a EXCLUSIONES_CLI=()
 
 # Variables para estadísticas
 declare -i ARCHIVOS_SINCRONIZADOS=0
@@ -247,6 +249,7 @@ mostrar_ayuda() {
     echo "  --item ELEMENTO    Sincroniza solo el elemento especificado (archivo o directorio)"
     echo "  --yes              No pregunta confirmación, ejecuta directamente"
     echo "  --backup-dir       Usa el directorio de backup de solo lectura (pCloud Backup) en lugar de Backup_Comun"
+    echo "  --exclude PATRON   Excluye archivos que coincidan con el patrón (puede usarse múltiples veces)"
     echo "  --overwrite        Sobrescribe todos los archivos en destino (no usa --update)"
     echo "  --checksum         Fuerza comparación con checksum (más lento)"  
     echo "  --bwlimit KB/s     Limita la velocidad de transferencia (ej: 1000 para 1MB/s)"
@@ -278,6 +281,7 @@ mostrar_ayuda() {
     echo "  sync_bidireccional.sh --bajar --item configuracion.ini --dry-run"
     echo "  sync_bidireccional.sh --bajar --backup-dir --yes"
     echo "  sync_bidireccional.sh --bajar --backup-dir --item documentos/ --yes"
+    echo "  sync_bidireccional.sh --subir --exclude '*.tmp' --exclude 'temp/'"
     echo "  sync_bidireccional.sh --subir --overwrite     # Sobrescribe todos los archivos"
     echo "  sync_bidireccional.sh --subir --bwlimit 1000  # Sincronizar subiendo con límite de 1MB/s" 
     echo "  sync_bidireccional.sh --subir --verbose       # Sincronizar con output verboso"
@@ -407,13 +411,21 @@ mostrar_banner() {
         echo "MODO: SEGURO (--update activado)"
     fi
 
-    if [ -n "$ITEM_ESPECIFICO" ]; then
-        echo "ELEMENTO ESPECÍFICO: $ITEM_ESPECIFICO"
-    else
-        echo "LISTA: ${LISTA_SINCRONIZACION:-No encontrada}"
-    fi
+if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
+    echo "ELEMENTOS ESPECÍFICOS: ${ITEMS_ESPECIFICOS[*]}"
+else
+    echo "LISTA: ${LISTA_SINCRONIZACION:-No encontrada}"
+fi
 
     echo "EXCLUSIONES: ${EXCLUSIONES:-No encontradas}"
+    
+    # Exclusiones linea comandos EXCLUSIONES_CLI
+    if [ ${#EXCLUSIONES_CLI[@]} -gt 0 ]; then
+        echo "Exclusiones CLI (${#EXCLUSIONES_CLI[@]}):"
+        for i in "${!EXCLUSIONES_CLI[@]}"; do
+            echo "  $((i+1)). ${EXCLUSIONES_CLI[$i]}"
+        done
+    fi
     echo "=========================================="
 }
 
@@ -469,7 +481,7 @@ inicializar_log() {
         echo "Backup-dir: $BACKUP_DIR_MODE"
         echo "Overwrite: $OVERWRITE"
         echo "Checksum: $USE_CHECKSUM"
-        [ -n "$ITEM_ESPECIFICO" ] && echo "Item específico: $ITEM_ESPECIFICO"
+        [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ] && echo "Items específicos: ${ITEMS_ESPECIFICOS[*]}"
         echo "Lista sincronización: ${LISTA_SINCRONIZACION:-No encontrada}"
         echo "Exclusiones: ${EXCLUSIONES:-No encontradas}"
     } >> "$LOG_FILE"
@@ -489,7 +501,7 @@ verificar_dependencias() {
 # Función para verificar archivos de configuración
 verificar_archivos_configuracion() {
     log_debug "Verificando archivos de configuración..."
-    if [ -z "$ITEM_ESPECIFICO" ] && [ -z "$LISTA_SINCRONIZACION" ]; then
+    if [ ${#ITEMS_ESPECIFICOS[@]} -eq 0 ] && [ -z "$LISTA_SINCRONIZACION" ]; then
         log_error "No se encontró el archivo de lista 'sync_bidireccional_directorios.ini'"
         log_info "Busca en:"
         log_info "  - ${SCRIPT_DIR}/"
@@ -531,6 +543,16 @@ construir_opciones_rsync() {
     if [ -n "$EXCLUSIONES" ] && [ -f "$EXCLUSIONES" ]; then
         RSYNC_OPTS+=(--exclude-from="$EXCLUSIONES")
     fi
+        
+    # Añadir exclusiones de línea de comandos
+    if [ ${#EXCLUSIONES_CLI[@]} -gt 0 ]; then
+        for patron in "${EXCLUSIONES_CLI[@]}"; do
+            RSYNC_OPTS+=(--exclude="$patron")
+        done
+        log_info "Exclusiones por CLI aplicadas: ${#EXCLUSIONES_CLI[@]} patrones"
+    fi
+    
+    log_debug "Opciones finales de rsync: ${RSYNC_OPTS[*]}"
 }
 
 # Función para mostrar estadísticas completas
@@ -548,6 +570,7 @@ mostrar_estadísticas() {
     echo "Elementos procesados: $ARCHIVOS_SINCRONIZADOS"
     echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
     [ $DELETE -eq 1 ] && echo "Archivos borrados: $ARCHIVOS_BORRADOS"
+    [ ${#EXCLUSIONES_CLI[@]} -gt 0 ] && echo "Exclusiones CLI aplicadas: ${#EXCLUSIONES_CLI[@]}"
     echo "Enlaces manejados: $((ENLACES_CREADOS + ENLACES_EXISTENTES))"
     echo "  - Enlaces creados: $ENLACES_CREADOS"
     echo "  - Enlaces existentes: $ENLACES_EXISTENTES"
@@ -768,33 +791,35 @@ generar_archivo_enlaces() {
 		done < <(find "$dir" -type l -print0 2>/dev/null)
 	}
 
-    if [ -n "$ITEM_ESPECIFICO" ]; then
-        local ruta_completa="${LOCAL_DIR}/${ITEM_ESPECIFICO}"
-        log_debug "Buscando enlaces para elemento específico: $ruta_completa"
-        if [ -L "$ruta_completa" ]; then
-            registrar_enlace "$ruta_completa"
-        elif [ -d "$ruta_completa" ]; then
-            buscar_enlaces_en_directorio "$ruta_completa"
-        fi
-    else
-        while IFS= read -r elemento || [ -n "$elemento" ]; do
-            log_debug "Procesando elemento de la lista: $elemento"
-            [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]] || continue
-            
-            # Validación de seguridad adicional
-            if [[ "$elemento" == *".."* ]]; then
-                log_error "Elemento contiene '..' - posible path traversal: $elemento"
-                continue
-            fi
-            
-            local ruta_completa="${LOCAL_DIR}/${elemento}"
-            if [ -L "$ruta_completa" ]; then
-                registrar_enlace "$ruta_completa"
-            elif [ -d "$ruta_completa" ]; then
-                buscar_enlaces_en_directorio "$ruta_completa"
-            fi
-        done < "$LISTA_SINCRONIZACION"
-    fi
+  if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
+      for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
+          local ruta_completa="${LOCAL_DIR}/${elemento}"
+          log_debug "Buscando enlaces para elemento específico: $ruta_completa"
+          if [ -L "$ruta_completa" ]; then
+              registrar_enlace "$ruta_completa"
+          elif [ -d "$ruta_completa" ]; then
+              buscar_enlaces_en_directorio "$ruta_completa"
+          fi
+      done
+  else
+      while IFS= read -r elemento || [ -n "$elemento" ]; do
+          log_debug "Procesando elemento de la lista: $elemento"
+          [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]] || continue
+          
+          # Validación de seguridad adicional
+          if [[ "$elemento" == *".."* ]]; then
+              log_error "Elemento contiene '..' - posible path traversal: $elemento"
+              continue
+          fi
+          
+          local ruta_completa="${LOCAL_DIR}/${elemento}"
+          if [ -L "$ruta_completa" ]; then
+              registrar_enlace "$ruta_completa"
+          elif [ -d "$ruta_completa" ]; then
+              buscar_enlaces_en_directorio "$ruta_completa"
+          fi
+      done < "$LISTA_SINCRONIZACION"
+  fi
 
     if [ -s "$archivo_enlaces" ]; then
         log_debug "Sincronizando archivo de enlaces a pCloud..."
@@ -1137,29 +1162,32 @@ sincronizar() {
     # Preguntar confirmación antes de continuar (excepto en dry-run o si se usa --yes)
     [ $DRY_RUN -eq 0 ] && confirmar_ejecucion
 
-    # Si se especificó un elemento específico
-    if [ -n "$ITEM_ESPECIFICO" ]; then
-        log_debug "Sincronizando elemento específico: $ITEM_ESPECIFICO"
-        resolver_item_relativo "$ITEM_ESPECIFICO"
-        log_info "Sincronizando elemento específico: $REL_ITEM"
-        sincronizar_elemento "$REL_ITEM" || exit_code=1
-    else
-        log_info "Procesando lista de sincronización: ${LISTA_SINCRONIZACION}"
-        while IFS= read -r linea || [ -n "$linea" ]; do
-            [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
-            log_debug "Procesando elemento de la lista: $linea"
-            
-            # Validación de seguridad adicional
-            if [[ "$linea" == *".."* ]]; then
-                log_error "Elemento contiene '..' - posible path traversal: $linea"
-                exit_code=1
-                continue
-            fi
-            
-            sincronizar_elemento "$linea" || exit_code=1
-            echo "------------------------------------------"
-        done < "$LISTA_SINCRONIZACION"
-    fi
+	# Si se especificaron elementos específicos
+	if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
+		log_info "Sincronizando ${#ITEMS_ESPECIFICOS[@]} elementos específicos"
+		for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
+		resolver_item_relativo "$elemento"
+		log_info "Sincronizando elemento específico: $REL_ITEM"
+		sincronizar_elemento "$REL_ITEM" || exit_code=1
+		echo "------------------------------------------"
+		done
+	else
+		log_info "Procesando lista de sincronización: ${LISTA_SINCRONIZACION}"
+		while IFS= read -r linea || [ -n "$linea" ]; do
+		[[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
+		log_debug "Procesando elemento de la lista: $linea"
+		
+		# Validación de seguridad adicional
+		if [[ "$linea" == *".."* ]]; then
+			log_error "Elemento contiene '..' - posible path traversal: $linea"
+			exit_code=1
+			continue
+		fi
+		
+		sincronizar_elemento "$linea" || exit_code=1
+		echo "------------------------------------------"
+		done < "$LISTA_SINCRONIZACION"
+	fi
     
     # Manejo de enlaces simbólicos
     if [ "$MODO" = "subir" ]; then
@@ -1181,6 +1209,7 @@ sincronizar() {
 # Post: permisos ejecutables al bajar
 # =========================
 # Funcion para ajustar permisos de ejecución de ficheros indicados
+# No se esta usando actualmente
 ajustar_permisos_ejecutables() {
     local directorio_base="${LOCAL_DIR}"
     local exit_code=0
@@ -1379,13 +1408,15 @@ log_debug "Argumentos recibidos: $*"
 # Verificación de argumentos duplicados (solo para opciones)
 declare -A seen_opts
 for arg in "$@"; do
-    # Solo verificar opciones (que comienzan con --)
     if [[ "$arg" == --* ]]; then
-        if [[ -v seen_opts[$arg] ]]; then
-            log_error "Opción duplicada: $arg"
-            exit 1
+        # Excluir --item y --exclude de la verificación de duplicados
+        if [[ "$arg" != "--item" && "$arg" != "--exclude" ]]; then
+            if [[ -v seen_opts[$arg] ]]; then
+                log_error "Opción duplicada: $arg"
+                exit 1
+            fi
+            seen_opts["$arg"]=1
         fi
-        seen_opts["$arg"]=1
     fi
 done
 
@@ -1402,9 +1433,12 @@ while [[ $# -gt 0 ]]; do
             DELETE=1; shift;;
         --dry-run)
             DRY_RUN=1; shift;;
-        --item)
-            [ -z "$2" ] && { log_error "--item requiere un argumento"; exit 1; }
-            ITEM_ESPECIFICO="$2"; shift 2;;
+	--item)
+    	    [ -z "$2" ] && { log_error "--item requiere un argumento"; exit 1; }
+            ITEMS_ESPECIFICOS+=("$2"); shift 2;;
+	--exclude)
+            [ -z "$2" ] && { log_error "--exclude requiere un patrón"; exit 1; }
+            EXCLUSIONES_CLI+=("$2"); shift 2;;
         --yes)
             YES=1; shift;;
         --backup-dir)
@@ -1491,6 +1525,7 @@ mostrar_estadísticas
     echo "Elementos sincronizados: $ARCHIVOS_SINCRONIZADOS"
     echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
     [ $DELETE -eq 1 ] && echo "Archivos borrados: $ARCHIVOS_BORRADOS"
+    [ ${#EXCLUSIONES_CLI[@]} -gt 0 ] && echo "Exclusiones CLI aplicadas: ${#EXCLUSIONES_CLI[@]}"
     echo "Modo dry-run: $([ $DRY_RUN -eq 1 ] && echo 'Sí' || echo 'No')"
     echo "Enlaces detectados/guardados: $ENLACES_DETECTADOS"
     echo "Enlaces creados: $ENLACES_CREADOS"
