@@ -1,435 +1,247 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -uo pipefail
+IFS=$'\n\t'
 
-# Script: sync_bidireccional_v2.sh
-# Descripción: Sincronización bidireccional mejorada entre directorio local y pCloud.
-# Uso:
-#   Subir: ./sync_bidireccional_v2.sh --subir [--delete] [--dry-run] [--item elemento] [--yes] [--overwrite]
-#   Bajar: ./sync_bidireccional_v2.sh --bajar [--delete] [--dry-run] [--item elemento] [--yes] [--backup-dir] [--overwrite]
+# Debug / Fixed sync script focused on showing the exact rsync command and diagnosing why rsync
+# options might contain the literal word "rsync" repeated.
+#
+# Usage examples:
+#   ./sync_bidireccional_debug_final.sh --subir --item Documentos --dry-run
+#   ./sync_bidireccional_debug_final.sh --bajar --item Documentos --dry-run
 
-# --------------------------------------------------------------------------------------------------
-# CONFIGURACIÓN
-# --------------------------------------------------------------------------------------------------
+PCLOUD_MOUNT_POINT="${HOME}/pCloudDrive"
+LOCAL_DIR="${HOME}"
+PCLOUD_BACKUP_COMUN="${PCLOUD_MOUNT_POINT}/Backups/Backup_Comun"
+PCLOUD_BACKUP_READONLY="${PCLOUD_MOUNT_POINT}/pCloud Backup/feynman.sobremesa.dnf"
 
-# Editar estas rutas según tu caso. Utiliza rutas absolutas.
-readonly PCLOUD_MOUNT_POINT="${HOME}/pCloudDrive"
-readonly LOCAL_DIR="${HOME}"
-readonly PCLOUD_BACKUP_COMUN="${PCLOUD_MOUNT_POINT}/Backups/Backup_Comun"
-readonly PCLOUD_BACKUP_READONLY="${PCLOUD_MOUNT_POINT}/pCloud Backup/feynman.sobremesa.dnf"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Use FQDN as requested
+if command -v hostname >/dev/null 2>&1; then
+    HOSTNAME="$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "unknown")"
+else
+    HOSTNAME="unknown"
+fi
+HOSTNAME_RTVA="feynman.sobremesa.dnf"
 
-# Nombre de archivo de configuración por defecto
-readonly DEFAULT_LIST_FILE="sync_bidireccional_directorios.ini"
-readonly EXCLUSIONS_FILE="sync_bidireccional_exclusiones.ini"
-readonly SYMLINKS_METADATA_FILE=".sync_bidireccional_symlinks.meta"
-
-# Hostname específico que usa una configuración diferente
-readonly HOSTNAME_RTVA="feynman.rtva.dnf"
-
-# --------------------------------------------------------------------------------------------------
-# VARIABLES GLOBALES
-# --------------------------------------------------------------------------------------------------
-
+# Options
 MODO=""
 DRY_RUN=0
 DELETE=0
 ITEM_ESPECIFICO=""
 YES=0
 OVERWRITE=0
-BACKUP_DIR_MODE="comun" # "comun" or "readonly"
-LISTA_SINCRONIZACION=""
-EXCLUSIONES=""
-LOG_FILE="${HOME}/sync_bidireccional.log"
+BACKUP_DIR_MODE="comun"
+USE_CHECKSUM=0
 
-# Códigos de color
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly NC='\033[0m' # No Color
+LOG_FILE="${HOME}/sync_bidireccional_debug.log"
+SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"
 
-# --------------------------------------------------------------------------------------------------
-# FUNCIONES AUXILIARES
-# --------------------------------------------------------------------------------------------------
+# Basic helpers
+echo_stderr() { printf "%s\n" "$*" >&2; }
 
-# Muestra un mensaje de error y sale.
-error_exit() {
-    echo -e "${RED}ERROR: $1${NC}" >&2
+mostrar_ayuda() {
+    cat <<'EOF'
+Uso: sync_bidireccional_debug_final.sh --subir|--bajar [--item PATH] [--dry-run] [--yes] [--delete] [--overwrite] [--checksum]
+
+Este script es una versión depuradora que:
+ - Construye RSYNC_OPTS de forma segura (sin introducir la palabra 'rsync' como opción).
+ - Valida el contenido de RSYNC_OPTS (si contiene 'rsync', aborta e imprime diagnóstico).
+ - Muestra exactamente el comando que se va a ejecutar (con escaping %q).
+ - Ejecuta rsync usando array expansion (no evaluación textual).
+EOF
+}
+
+# parse args (simple)
+if [ $# -eq 0 ]; then
+    echo_stderr "ERROR: Debes especificar --subir o --bajar"
+    mostrar_ayuda
     exit 1
-}
+fi
 
-# Muestra un mensaje de advertencia.
-warning() {
-    echo -e "${YELLOW}ADVERTENCIA: $1${NC}"
-}
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --subir) MODO="subir"; shift;;
+        --bajar) MODO="bajar"; shift;;
+        --item) ITEM_ESPECIFICO="$2"; shift 2;;
+        --dry-run) DRY_RUN=1; shift;;
+        --yes) YES=1; shift;;
+        --delete) DELETE=1; shift;;
+        --overwrite) OVERWRITE=1; shift;;
+        --checksum) USE_CHECKSUM=1; shift;;
+        --backup-dir) BACKUP_DIR_MODE="readonly"; shift;;
+        --help) mostrar_ayuda; exit 0;;
+        *) echo_stderr "Opción desconocida: $1"; mostrar_ayuda; exit 1;;
+    esac
+done
 
-# Muestra un mensaje de éxito.
-success() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
+[ -n "$MODO" ] || { echo_stderr "ERROR: Debes indicar --subir o --bajar"; exit 1; }
 
-# Registra un mensaje en el archivo de log.
-log_message() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
-}
-
-# Determina el directorio de pCloud según el modo.
-get_pcloud_dir() {
-    if [[ "$BACKUP_DIR_MODE" == "readonly" ]]; then
-        echo "$PCLOUD_BACKUP_READONLY"
-    else
-        echo "$PCLOUD_BACKUP_COMUN"
-    fi
-}
-
-# --------------------------------------------------------------------------------------------------
-# LÓGICA DEL SCRIPT
-# --------------------------------------------------------------------------------------------------
-
-## Verificación de Dependencias
-verificar_dependencias() {
-    if ! command -v rsync &>/dev/null; then
-        error_exit "rsync no está instalado. Instálalo con 'sudo apt install rsync' o 'sudo dnf install rsync'."
-    fi
-}
-
-
-
-## Búsqueda y Verificación de Archivos de Configuración
+# Find config files (as original, but simple)
 find_config_files() {
-    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local hostname=$(hostname)
+    local lista_por_defecto="sync_bidireccional_directorios.ini"
+    local lista_especifica="sync_bidireccional_directorios_${HOSTNAME_RTVA}.ini"
 
-    if [[ "$hostname" == "$HOSTNAME_RTVA" ]]; then
-        LISTA_SINCRONIZACION="${script_dir}/sync_bidireccional_directorios_${HOSTNAME_RTVA}.ini"
+    if [ -f "${SCRIPT_DIR}/${lista_especifica}" ]; then
+        LISTA_SINCRONIZACION="${SCRIPT_DIR}/${lista_especifica}"
+    elif [ -f "./${lista_especifica}" ]; then
+        LISTA_SINCRONIZACION="./${lista_especifica}"
+    elif [ -f "${SCRIPT_DIR}/${lista_por_defecto}" ]; then
+        LISTA_SINCRONIZACION="${SCRIPT_DIR}/${lista_por_defecto}"
+    elif [ -f "./${lista_por_defecto}" ]; then
+        LISTA_SINCRONIZACION="./${lista_por_defecto}"
     else
-        LISTA_SINCRONIZACION="${script_dir}/${DEFAULT_LIST_FILE}"
+        LISTA_SINCRONIZACION=""
     fi
 
-    # Verificar si el archivo de lista existe
-    if [[ -z "$ITEM_ESPECIFICO" ]] && [[ ! -f "$LISTA_SINCRONIZACION" ]]; then
-        error_exit "No se encontró el archivo de lista: '$LISTA_SINCRONIZACION'.\nCrea un archivo con la lista de rutas a sincronizar o usa --item."
-    fi
-
-    # Buscar el archivo de exclusiones
-    local exclusions_path="${script_dir}/${EXCLUSIONS_FILE}"
-    if [[ -f "$exclusions_path" ]]; then
-        EXCLUSIONES="$exclusions_path"
+    if [ -f "${SCRIPT_DIR}/sync_bidireccional_exclusiones.ini" ]; then
+        EXCLUSIONES="${SCRIPT_DIR}/sync_bidireccional_exclusiones.ini"
+    elif [ -f "./sync_bidireccional_exclusiones.ini" ]; then
+        EXCLUSIONES="./sync_bidireccional_exclusiones.ini"
     else
-        warning "No se encontró el archivo de exclusiones: '$EXCLUSIONS_FILE'. No se aplicarán exclusiones."
+        EXCLUSIONES=""
     fi
 }
 
+# Build RSYNC_OPTS safely (NO 'rsync' strings here)
+construir_opciones_rsync() {
+    RSYNC_OPTS=()
+    # Core options
+    RSYNC_OPTS+=(--recursive --verbose --times --progress --whole-file --no-links)
 
+    # Behavior flags
+    [ $OVERWRITE -eq 0 ] && RSYNC_OPTS+=(--update)
+    [ $DRY_RUN -eq 1 ] && RSYNC_OPTS+=(--dry-run)
+    [ $DELETE -eq 1 ] && RSYNC_OPTS+=(--delete-delay)
+    [ $USE_CHECKSUM -eq 1 ] && RSYNC_OPTS+=(--checksum)
 
-## Verificación de pCloud Montado
-verificar_pcloud_montado() {
-    local pcloud_dir=$(get_pcloud_dir)
-
-    if [[ ! -d "$PCLOUD_MOUNT_POINT" ]]; then
-        error_exit "El punto de montaje de pCloud no existe: '$PCLOUD_MOUNT_POINT'. Asegúrate de que pCloud Drive esté instalado y ejecutándose."
+    # Load excludes file if present; each line is a pattern
+    if [ -n "${EXCLUSIONES:-}" ] && [ -f "$EXCLUSIONES" ]; then
+        while IFS= read -r linea || [ -n "$linea" ]; do
+            # skip empty lines and comments
+            case "$linea" in
+                ''|\#*) continue;;
+            esac
+            RSYNC_OPTS+=(--exclude="$linea")
+        done < "$EXCLUSIONES"
     fi
+}
 
-    if [[ -z "$(ls -A "$PCLOUD_MOUNT_POINT" 2>/dev/null)" ]]; then
-        error_exit "El directorio de pCloud está vacío: '$PCLOUD_MOUNT_POINT'. Esto sugiere que pCloud Drive no está montado correctamente."
-    fi
-
-    if [[ ! -d "$pcloud_dir" ]]; then
-        error_exit "El directorio de pCloud no existe: '$pcloud_dir'. Asegúrate de que exista en tu cuenta."
-    fi
-
-    if [[ $DRY_RUN -eq 0 ]] && [[ "$BACKUP_DIR_MODE" == "comun" ]]; then
-        if ! touch "${pcloud_dir}/.test_write_$$" &>/dev/null; then
-            error_exit "No se puede escribir en el directorio de pCloud: '$pcloud_dir'. Revisa tus permisos."
+# Validation: ensure no element accidentally contains the word 'rsync'
+validate_rsync_opts() {
+    local i
+    for i in "${RSYNC_OPTS[@]:-}"; do
+        # if the literal string 'rsync' appears anywhere, it's suspicious
+        if printf '%s\n' "$i" | grep -qi 'rsync'; then
+            echo_stderr "ERROR: RSYNC_OPTS contiene un elemento sospechoso con 'rsync': '$i'"
+            echo_stderr "Contenido actual de RSYNC_OPTS (declare -p):"
+            declare -p RSYNC_OPTS 2>/dev/null || printf '%s\n' "${RSYNC_OPTS[@]}"
+            return 1
         fi
-        rm -f "${pcloud_dir}/.test_write_$$"
-    fi
-
-    success "Verificación de pCloud: El directorio está montado y accesible."
+    done
+    return 0
 }
 
+# Print the command array in a safe, fully-escaped form
+print_cmd_array() {
+    local -n _arr=$1
+    printf "Comando a ejecutar:\n"
+    for el in "${_arr[@]}"; do
+        printf "%q " "$el"
+    done
+    printf "\n"
+}
 
+# Resolve --item to be relative to $HOME if given absolute inside HOME
+resolver_item_relativo() {
+    local item="$1"
+    if [ -z "$item" ]; then
+        echo ""
+        return
+    fi
+    if [[ "$item" = /* ]]; then
+        # absolute path; ensure it's under $LOCAL_DIR
+        case "$item" in
+            "$LOCAL_DIR"/*) echo "${item#$LOCAL_DIR/}" ;;
+            "$LOCAL_DIR") echo "." ;;
+            *) echo_stderr "ERROR: --item absoluto fuera de \$HOME: $item"; exit 1 ;;
+        esac
+    else
+        echo "$item"
+    fi
+}
 
-## Lógica de Sincronización
-sincronizar_elemento() {
+# Sync one element (prints and validates)
+sincronizar_elemento_debug() {
     local elemento="$1"
-    local opciones="$2"
-    local pcloud_dir=$(get_pcloud_dir)
+    local PCLOUD_DIR origen destino
+    PCLOUD_DIR="$( [ "$BACKUP_DIR_MODE" = "readonly" ] && echo "${PCLOUD_BACKUP_READONLY}" || echo "${PCLOUD_BACKUP_COMUN}" )"
 
-    local origen="${LOCAL_DIR}/${elemento}"
-    local destino="${pcloud_dir}/${elemento}"
-    local direccion="LOCAL → PCLOUD (Subir)"
-
-    if [[ "$MODO" == "bajar" ]]; then
-        origen="${pcloud_dir}/${elemento}"
+    if [ "$MODO" = "subir" ]; then
+        origen="${LOCAL_DIR}/${elemento}"
+        destino="${PCLOUD_DIR}/${elemento}"
+    else
+        origen="${PCLOUD_DIR}/${elemento}"
         destino="${LOCAL_DIR}/${elemento}"
-        direccion="PCLOUD → LOCAL (Bajar)"
     fi
 
-    # Manejar rutas que son directorios
-    if [[ -d "$origen" ]]; then
+    [ -e "$origen" ] || { echo_stderr "ADVERTENCIA: No existe el origen: $origen"; return 1; }
+
+    if [ -d "$origen" ]; then
         origen="${origen%/}/"
         destino="${destino%/}/"
     fi
 
-    if [[ ! -e "$origen" ]]; then
-        warning "El origen no existe, omitiendo: $origen"
-        log_message "ADVERTENCIA: No existe $origen"
-        return 1
+    construir_opciones_rsync
+
+    # Validate RSYNC_OPTS
+    if ! validate_rsync_opts; then
+        echo_stderr "Abortando por contenido inválido en RSYNC_OPTS."
+        return 2
     fi
-    
-    echo -e "${BLUE}Sincronizando: $elemento ($direccion)${NC}"
-    log_message "Sincronizando: $elemento ($direccion)"
 
-    local rsync_cmd="rsync ${opciones} \"${origen}\" \"${destino}\""
-    log_message "Comando: ${rsync_cmd}"
+    # Build command array safely
+    cmd=(rsync)
+    for opt in "${RSYNC_OPTS[@]}"; do
+        cmd+=("$opt")
+    done
+    cmd+=("--")
+    cmd+=("$origen" "$destino")
 
-    # Evitar eval para mayor seguridad
-    if [[ $DRY_RUN -eq 1 ]]; then
-        echo "SIMULACIÓN: ${rsync_cmd}"
-        log_message "SIMULACIÓN: ${rsync_cmd}"
+    # Print what will be executed
+    print_cmd_array cmd
+
+    # Also print RSYNC_OPTS for extra clarity
+    echo "declare -p RSYNC_OPTS:"
+    declare -p RSYNC_OPTS 2>/dev/null || printf '%s\n' "${RSYNC_OPTS[@]}"
+
+    # Execute rsync (the array will handle spaces correctly). Capture output.
+    echo "Ejecutando rsync..."
+    if "${cmd[@]}"; then
+        echo "✓ Sincronización (debug) completada para: $elemento"
         return 0
-    fi
-    
-    # Usar arrays para pasar argumentos de forma segura
-    local rsync_args=(${opciones} "${origen}" "${destino}")
-    rsync "${rsync_args[@]}"
-    local resultado=$?
-
-    if [[ $resultado -eq 0 ]]; then
-        success "Sincronización completada: $elemento"
-        log_message "Sincronización completada: $elemento"
     else
-        echo -e "${RED}✗ Error en sincronización: $elemento (código: $resultado)${NC}"
-        log_message "Error en sincronización: $elemento (código: $resultado)"
-    fi
-    return $resultado
-}
-
-
-
-## Manejo de Enlaces Simbólicos
-sincronizar_symlinks() {
-    if [[ "$MODO" == "subir" ]]; then
-        # Subir: Generar y subir el archivo de metadatos de enlaces
-        log_message "Generando y subiendo metadatos de enlaces simbólicos."
-        local symlinks_temp_file=$(mktemp)
-        
-        if [[ -n "$ITEM_ESPECIFICO" ]]; then
-            find "${LOCAL_DIR}/${ITEM_ESPECIFICO}" -type l 2>/dev/null
-        else
-            while IFS= read -r item; do
-                if [[ -n "$item" ]] && [[ ! "$item" =~ ^[[:space:]]*# ]]; then
-                    find "${LOCAL_DIR}/${item}" -type l 2>/dev/null
-                fi
-            done < "$LISTA_SINCRONIZACION"
-        fi | while read -r link; do
-            local relative_path=$(realpath --relative-to="${LOCAL_DIR}" "$link")
-            local target=$(readlink -f "$link")
-            if [[ -n "$relative_path" ]] && [[ -n "$target" ]]; then
-                echo -e "${relative_path}\t${target}" >> "$symlinks_temp_file"
-            fi
-        done
-
-        if [[ -s "$symlinks_temp_file" ]]; then
-            rsync --dry-run "${symlinks_temp_file}" "$(get_pcloud_dir)/${SYMLINKS_METADATA_FILE}" >/dev/null
-            if [[ $? -eq 0 ]]; then
-                echo "SIMULACIÓN: Se subiría el archivo de metadatos de enlaces."
-            else
-                rsync --progress "${symlinks_temp_file}" "$(get_pcloud_dir)/${SYMLINKS_METADATA_FILE}"
-                success "Archivo de metadatos de enlaces subido."
-            fi
-        fi
-        rm -f "$symlinks_temp_file"
-    elif [[ "$MODO" == "bajar" ]]; then
-        # Bajar: Recrear enlaces desde el archivo de metadatos
-        log_message "Recreando enlaces simbólicos desde metadatos."
-        local pcloud_symlinks_path="$(get_pcloud_dir)/${SYMLINKS_METADATA_FILE}"
-
-        if [[ ! -f "$pcloud_symlinks_path" ]]; then
-            warning "No se encontró el archivo de metadatos de enlaces, se omite la recreación."
-            return 0
-        fi
-
-        while IFS=$'\t' read -r link_path target; do
-            if [[ -z "$link_path" ]]; then continue; fi
-            local full_link_path="${LOCAL_DIR}/${link_path}"
-            
-            # Si el enlace ya existe y es correcto, se omite
-            if [[ -L "$full_link_path" ]] && [[ "$(readlink -f "$full_link_path")" == "$target" ]]; then
-                continue
-            fi
-
-            # Si el destino del enlace no existe, se advierte
-            if [[ ! -e "$target" ]]; then
-                warning "El destino del enlace no existe en el sistema local: '$target'"
-                continue
-            fi
-
-            local parent_dir=$(dirname "$full_link_path")
-            if [[ ! -d "$parent_dir" ]]; then
-                echo "Creando directorio padre: $parent_dir"
-                mkdir -p "$parent_dir"
-            fi
-
-            if [[ $DRY_RUN -eq 1 ]]; then
-                echo "SIMULACIÓN: ln -sfn '$target' '$full_link_path'"
-            else
-                if ln -sfn "$target" "$full_link_path" &>/dev/null; then
-                    echo "Creado enlace: ${link_path} -> ${target}"
-                else
-                    warning "Error al crear enlace: ${link_path}"
-                fi
-            fi
-        done < "$pcloud_symlinks_path"
+        local rc=$?
+        echo_stderr "✗ rsync finalizó con código $rc"
+        return $rc
     fi
 }
 
+# MAIN (simpler than the full original; this script is for debugging rsync invocation)
+find_config_files
 
-
-## Ajuste de Permisos
-ajustar_permisos_ejecutables() {
-    local exit_code=0
-    echo -e "${BLUE}Ajustando permisos de ejecución...${NC}"
-
-    for pattern in "$@"; do
-        if [[ "$pattern" == *"*"* ]]; then
-            # Es un patrón con comodín
-            local full_path_pattern="${LOCAL_DIR}/${pattern}"
-            find "$(dirname "$full_path_pattern")" -maxdepth 1 -name "$(basename "$full_path_pattern")" -type f -exec chmod +x {} +
-        else
-            # Es una ruta específica
-            local full_path="${LOCAL_DIR}/${pattern}"
-            if [[ ! -e "$full_path" ]]; then
-                warning "La ruta no existe, se omite: $full_path"
-                continue
-            fi
-            if [[ -f "$full_path" ]]; then
-                echo "Aplicando permisos a: $pattern"
-                chmod +x "$full_path"
-            elif [[ -d "$full_path" ]]; then
-                echo "Aplicando permisos recursivos a: $pattern"
-                find "$full_path" -type f \( -name "*.sh" -o -name "*.py" -o -name "*.jl" \) -exec chmod +x {} +
-            fi
-        fi
-    done
-}
-
-
-
-## Función Principal (main)
-main() {
-    # Manejo de argumentos
-    if [[ $# -eq 0 ]]; then
-        error_exit "Debes especificar al menos --subir o --bajar."
+if [ -n "$ITEM_ESPECIFICO" ]; then
+    REL_ITEM="$(resolver_item_relativo "$ITEM_ESPECIFICO")"
+    echo "DEBUG: Modo: $MODO, Item: $REL_ITEM, Dry-run: $DRY_RUN"
+    sincronizar_elemento_debug "$REL_ITEM"
+    exit $?
+else
+    # If no item given, read list file
+    if [ -z "${LISTA_SINCRONIZACION:-}" ]; then
+        echo_stderr "No se proporcionó --item y no se encontró lista de sincronización."
+        exit 1
     fi
-
-    # Uso de getopts para procesar argumentos de forma robusta
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --subir)
-                [[ -n "$MODO" ]] && error_exit "No puedes usar --subir y --bajar simultáneamente."
-                MODO="subir"
-                shift
-                ;;
-            --bajar)
-                [[ -n "$MODO" ]] && error_exit "No puedes usar --subir y --bajar simultáneamente."
-                MODO="bajar"
-                shift
-                ;;
-            --delete)
-                DELETE=1
-                shift
-                ;;
-            --dry-run)
-                DRY_RUN=1
-                shift
-                ;;
-            --item)
-                [[ $# -lt 2 ]] && error_exit "La opción --item requiere un argumento."
-                ITEM_ESPECIFICO="$2"
-                shift 2
-                ;;
-            --yes)
-                YES=1
-                shift
-                ;;
-            --backup-dir)
-                BACKUP_DIR_MODE="readonly"
-                shift
-                ;;
-            --overwrite)
-                OVERWRITE=1
-                shift
-                ;;
-            --help)
-                #show_help
-                exit 0
-                ;;
-            *)
-                error_exit "Opción desconocida: '$1'."
-                ;;
-        esac
-    done
-
-    # Validaciones iniciales
-    [[ -z "$MODO" ]] && error_exit "Debes especificar --subir o --bajar."
-    verificar_dependencias
-    find_config_files
-    verificar_pcloud_montado
-    log_message "Sincronización iniciada: $(date)"
-
-    # Construir opciones de rsync
-    local rsync_options="--recursive --verbose --times --checksum --progress --no-links"
-    [[ $OVERWRITE -eq 0 ]] && rsync_options+=" --update"
-    [[ $DRY_RUN -eq 1 ]] && rsync_options+=" --dry-run"
-    [[ $DELETE -eq 1 ]] && rsync_options+=" --delete-delay"
-    
-    # Añadir exclusiones de forma segura
-    if [[ -n "$EXCLUSIONES" ]]; then
-        while IFS= read -r exclusion; do
-            if [[ -n "$exclusion" ]] && [[ ! "$exclusion" =~ ^[[:space:]]*# ]]; then
-                rsync_options+=" --exclude='${exclusion}'"
-            fi
-        done < "$EXCLUSIONES"
-    fi
-
-    # Confirmación
-    if [[ $DRY_RUN -eq 0 ]] && [[ $YES -eq 0 ]]; then
-        read -p "¿Desea continuar con la sincronización? [s/N]: " respuesta
-        [[ "$respuesta" != "s" ]] && [[ "$respuesta" != "S" ]] && exit 0
-    fi
-
-    # Sincronizar
-    local exit_code=0
-    if [[ -n "$ITEM_ESPECIFICO" ]]; then
-        sincronizar_elemento "$ITEM_ESPECIFICO" "$rsync_options" || exit_code=1
-    else
-        while IFS= read -r line; do
-            if [[ -n "$line" ]] && [[ ! "$line" =~ ^[[:space:]]*# ]]; then
-                sincronizar_elemento "$line" "$rsync_options" || exit_code=1
-            fi
-        done < "$LISTA_SINCRONIZACION"
-    fi
-
-    # Manejar enlaces simbólicos
-    sincronizar_symlinks
-
-    # Ajustar permisos si es necesario
-    if [[ "$MODO" == "bajar" ]] && [[ $DRY_RUN -eq 0 ]]; then
-        ajustar_permisos_ejecutables \
-            ".local/bin/*.sh" \
-            ".local/bin/*.bash" \
-            ".local/bin/*.py" \
-            ".local/bin/pcloud" \
-            ".config/dotfiles/*.sh"
-    fi
-
-    # Finalizar
-    log_message "Sincronización finalizada con código de salida: $exit_code"
-    if [[ $exit_code -eq 0 ]]; then
-        success "Sincronización completada exitosamente."
-    else
-        error_exit "Sincronización finalizada con errores."
-    fi
-}
-
-main "$@"
+    while IFS= read -r linea || [ -n "$linea" ]; do
+        [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
+        sincronizar_elemento_debug "$linea" || true
+    done < "$LISTA_SINCRONIZACION"
+fi
