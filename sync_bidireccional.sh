@@ -26,7 +26,6 @@ HOSTNAME_RTVA="feynman.rtva.dnf"
 LISTA_SINCRONIZACION=""
 EXCLUSIONES=""
 LOG_FILE="$HOME/sync_bidireccional.log"
-SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"  # Archivo para almacenar información de enlaces simbólicos
 
 # Variables de control
 MODO=""
@@ -80,7 +79,7 @@ find_config_files() {
         # Para otros hostnames, usar el archivo por defecto
         
         # Primero buscar en el directorio del script
-        if [ -f "${SCRIPT_DIR}/${lista_por_defecto" ]; then
+        if [ -f "${SCRIPT_DIR}/${lista_por_defecto}" ]; then
             LISTA_SINCRONIZACION="${SCRIPT_DIR}/${lista_por_defecto}"
         elif [ -f "./${lista_por_defecto}" ]; then
             # Si no está en el directorio del script, buscar en el directorio actual
@@ -312,7 +311,10 @@ verificar_archivos_configuracion() {
 
 # Función para construir opciones de rsync
 construir_opciones_rsync() {
-    local opciones="--recursive --verbose --times --checksum --progress --whole-file --no-links"
+    #local opciones="-avh --checksum --progress"
+    #local opciones="-avh --checksum --progress --whole-file"
+    local opciones="-avl --no-perms --no-owner --no-group --checksum --progress --whole-file" #mantine synlink errores
+    #local opciones="-av --no-perms --no-owner --no-group --checksum --progress --whole-file --copy-links" #copia synlink fichero real
     
     # Añadir --update si no estamos en modo sobrescritura
     if [ $OVERWRITE -eq 0 ]; then
@@ -338,175 +340,6 @@ construir_opciones_rsync() {
     fi
     
     echo "$opciones"
-}
-
-# Función para generar archivo de enlaces simbólicos
-generar_archivo_enlaces() {
-    local archivo_enlaces="$1"
-    local PCLOUD_DIR=$(get_pcloud_dir)
-    
-    echo "Generando archivo de enlaces simbólicos..."
-    registrar_log "Generando archivo de enlaces simbólicos: $archivo_enlaces"
-    
-    # Limpiar archivo existente
-    > "$archivo_enlaces"
-    
-    # Función auxiliar para procesar un elemento
-    procesar_elemento() {
-        local elemento="$1"
-        local ruta_completa="${LOCAL_DIR}/${elemento}"
-        
-        if [ ! -e "$ruta_completa" ]; then
-            return
-        fi
-        
-        if [ -d "$ruta_completa" ]; then
-            # Buscar todos los enlaces simbólicos en el directorio
-            find "$ruta_completa" -type l -print0 | while IFS= read -r -d '' enlace; do
-                registrar_enlace "$enlace" "$archivo_enlaces"
-            done
-        elif [ -L "$ruta_completa" ]; then
-            # Es un enlace simbólico directamente
-            registrar_enlace "$ruta_completa" "$archivo_enlaces"
-        fi
-    }
-    
-    # Función para registrar un enlace en el archivo
-    registrar_enlace() {
-        local enlace="$1"
-        local archivo_enlaces="$2"
-        
-        # Obtener ruta relativa y destino
-        local ruta_relativa=$(realpath --relative-to="${LOCAL_DIR}" "$enlace")
-        local destino=$(readlink -f "$enlace")
-        
-        # Si el destino está dentro del directorio local, hacerlo relativo
-        if [[ "$destino" == "${LOCAL_DIR}"* ]]; then
-            destino=$(realpath --relative-to="$(dirname "${LOCAL_DIR}/${ruta_relativa}")" "$destino")
-        fi
-        
-        # Registrar en el archivo
-        echo -e "${ruta_relativa}\t${destino}" >> "$archivo_enlaces"
-        echo "Registrado enlace: $ruta_relativa -> $destino"
-        registrar_log "Registrado enlace: $ruta_relativa -> $destino"
-    }
-    
-    # Procesar elementos según si hay item específico o lista
-    if [ -n "$ITEM_ESPECIFICO" ]; then
-        procesar_elemento "$ITEM_ESPECIFICO"
-    else
-        while IFS= read -r elemento; do
-            if [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]]; then
-                procesar_elemento "$elemento"
-            fi
-        done < "$LISTA_SINCRONIZACION"
-    fi
-    
-    # Sincronizar el archivo de enlaces
-    if [ -s "$archivo_enlaces" ]; then
-        echo "Sincronizando archivo de enlaces..."
-        local opciones=$(construir_opciones_rsync)
-        local comando="rsync $opciones '$archivo_enlaces' '${PCLOUD_DIR}/${SYMLINKS_FILE}'"
-        
-        if [ $DRY_RUN -eq 1 ]; then
-            echo "SIMULACIÓN: $comando"
-            registrar_log "SIMULACIÓN: $comando"
-        else
-            eval $comando
-            if [ $? -eq 0 ]; then
-                echo "✓ Archivo de enlaces sincronizado"
-                registrar_log "Archivo de enlaces sincronizado: ${PCLOUD_DIR}/${SYMLINKS_FILE}"
-            else
-                echo "✗ Error sincronizando archivo de enlaces"
-                registrar_log "Error sincronizando archivo de enlaces: ${PCLOUD_DIR}/${SYMLINKS_FILE}"
-            fi
-        fi
-    else
-        echo "No se encontraron enlaces simbólicos para registrar"
-        registrar_log "No se encontraron enlaces simbólicos para registrar"
-    fi
-    
-    # Limpiar archivo temporal
-    rm -f "$archivo_enlaces"
-}
-
-# Función para recrear enlaces simbólicos
-recrear_enlaces_desde_archivo() {
-    local PCLOUD_DIR=$(get_pcloud_dir)
-    local archivo_enlaces_origen="${PCLOUD_DIR}/${SYMLINKS_FILE}"
-    local archivo_enlaces_local="${LOCAL_DIR}/${SYMLINKS_FILE}"
-    
-    echo "Buscando archivo de enlaces..."
-    registrar_log "Buscando archivo de enlaces: $archivo_enlaces_origen"
-    
-    # Copiar el archivo de enlaces localmente si existe en pCloud
-    if [ -f "$archivo_enlaces_origen" ]; then
-        cp "$archivo_enlaces_origen" "$archivo_enlaces_local"
-        echo "Archivo de enlaces copiado localmente"
-        registrar_log "Archivo de enlaces copiado localmente: $archivo_enlaces_local"
-    elif [ -f "$archivo_enlaces_local" ]; then
-        echo "Usando archivo de enlaces local existente"
-        registrar_log "Usando archivo de enlaces local existente: $archivo_enlaces_local"
-    else
-        echo "No se encontró archivo de enlaces, omitiendo recreación"
-        registrar_log "No se encontró archivo de enlaces, omitiendo recreación"
-        return
-    fi
-    
-    # Procesar archivo de enlaces
-    echo "Recreando enlaces simbólicos..."
-    local contador=0
-    local errores=0
-    
-    while IFS=$'\t' read -r ruta_relativa destino; do
-        # Ignorar líneas vacías
-        if [ -z "$ruta_relativa" ]; then
-            continue
-        fi
-        
-        local ruta_completa="${LOCAL_DIR}/${ruta_relativa}"
-        local dir_padre=$(dirname "$ruta_completa")
-        
-        # Crear directorio padre si no existe
-        if [ ! -d "$dir_padre" ] && [ $DRY_RUN -eq 0 ]; then
-            mkdir -p "$dir_padre"
-        fi
-        
-        # Verificar si el enlace ya existe y es correcto
-        if [ -L "$ruta_completa" ]; then
-            local destino_actual=$(readlink "$ruta_completa")
-            if [ "$destino_actual" = "$destino" ]; then
-                echo "Enlace ya existe y es correcto: $ruta_relativa -> $destino"
-                registrar_log "Enlace ya existe y es correcto: $ruta_relativa -> $destino"
-                continue
-            fi
-        fi
-        
-        # Crear el enlace (en dry-run o realmente)
-        if [ $DRY_RUN -eq 1 ]; then
-            echo "SIMULACIÓN: ln -sfn '$destino' '$ruta_completa'"
-            registrar_log "SIMULACIÓN: ln -sfn '$destino' '$ruta_completa'"
-            contador=$((contador + 1))
-        else
-            if ln -sfn "$destino" "$ruta_completa" 2>/dev/null; then
-                echo "Creado enlace: $ruta_relativa -> $destino"
-                registrar_log "Creado enlace: $ruta_relativa -> $destino"
-                contador=$((contador + 1))
-            else
-                echo "Error creando enlace: $ruta_relativa -> $destino"
-                registrar_log "Error creando enlace: $ruta_relativa -> $destino"
-                errores=$((errores + 1))
-            fi
-        fi
-    done < "$archivo_enlaces_local"
-    
-    echo "Enlaces recreados: $contador, Errores: $errores"
-    registrar_log "Enlaces recreados: $contador, Errores: $errores"
-    
-    # Limpiar archivo local
-    if [ $DRY_RUN -eq 0 ]; then
-        rm -f "$archivo_enlaces_local"
-    fi
 }
 
 # Función para sincronizar un elemento
@@ -611,19 +444,10 @@ sincronizar() {
         done < "$LISTA_SINCRONIZACION"
     fi
     
-    # Manejo de enlaces simbólicos
-    if [ "$MODO" = "subir" ]; then
-        # Generar y subir archivo de enlaces
-        local archivo_temporal=$(mktemp)
-        generar_archivo_enlaces "$archivo_temporal"
-    elif [ "$MODO" = "bajar" ]; then
-        # Recrear enlaces desde archivo
-        recrear_enlaces_desde_archivo
-    fi
-    
     return $exit_code
 }
 
+# Ajustar permiso de los ficheros
 # FUNCIÓN CORREGIDA PARA AJUSTAR PERMISOS DE EJECUCIÓN
 ajustar_permisos_ejecutables() {
     local directorio_base="${LOCAL_DIR}"
@@ -670,10 +494,9 @@ ajustar_permisos_ejecutables() {
         fi
     done
     
-    #echo "Ajuste de permisos completado."
+    echo "Ajuste de permisos completado."
     return $exit_code
 }
-
 # Procesar argumentos
 if [ $# -eq 0 ]; then
     echo "ERROR: Debes especificar al menos --subir o --bajar"
