@@ -1031,10 +1031,13 @@ inicializar_log
 # Limpieza de temporales al salir
 cleanup() {
     for tf in "${TEMP_FILES[@]:-}"; do
-        [ -f "$tf" ] && rm -f "$tf"
+        if [ -f "$tf" ]; then
+            rm -f "$tf"
+            log_debug "Eliminado temporal: $tf"
+        fi
     done
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 sincronizar
 exit_code=$?
