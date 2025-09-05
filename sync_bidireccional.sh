@@ -340,71 +340,94 @@ construir_opciones_rsync() {
     echo "$opciones"
 }
 
-# Función para generar archivo de enlaces simbólicos
+#!/bin/bash
+
+# ... (el resto del script se mantiene igual hasta la función de enlaces)
+
+# Función para generar archivo de enlaces simbólicos (VERSIÓN COMPLETAMENTE NUEVA)
 generar_archivo_enlaces() {
     local archivo_enlaces="$1"
     local PCLOUD_DIR=$(get_pcloud_dir)
     
-    echo "Generando archivo de enlaces simbólicos..."
-    registrar_log "Generando archivo de enlaces simbólicos: $archivo_enlaces"
+    echo "Generando archivo de enlaces simbólicos (nuevo método)..."
+    registrar_log "Generando archivo de enlaces simbólicos (nuevo método): $archivo_enlaces"
     
     # Limpiar archivo existente
     > "$archivo_enlaces"
+    local enlaces_registrados=0
     
-    # Función para registrar un enlace en el archivo
-    registrar_enlace() {
-        local enlace="$1"
-        local archivo_enlaces="$2"
-        
-        # Obtener el destino del enlace
-        local destino=$(readlink -f "$enlace")
-        
-        # Modificación aquí: el destino del enlace simbólico debe ser la ruta completa del enlace
-        # Y el destino del enlace simbólico debe ser el destino que queremos
-        echo -e "${enlace}\t${destino}" >> "$archivo_enlaces"
-        echo "Registrado enlace: $enlace -> $destino"
-        registrar_log "Registrado enlace: $enlace -> $destino"
-    }
-    
-    
-    # Función para buscar enlaces en un directorio
-    buscar_enlaces_en_directorio() {
+    # Función para procesar un directorio específico
+    procesar_directorio() {
         local directorio="$1"
-        local archivo_enlaces="$2"
+        
+        echo "Procesando directorio: $directorio"
         
         # Buscar todos los enlaces simbólicos en el directorio
-        find "$directorio" -type l | while read -r enlace; do
-            registrar_enlace "$enlace" "$archivo_enlaces"
-        done
+        while IFS= read -r -d '' enlace; do
+            # Verificar que es un enlace simbólico
+            if [ ! -L "$enlace" ]; then
+                continue
+            fi
+            
+            # Obtener información del enlace
+            local nombre_enlace=$(basename "$enlace")
+            local ruta_relativa=$(realpath --relative-to="${LOCAL_DIR}" "$enlace")
+            local destino=$(readlink -f "$enlace")
+            
+            # Si no se puede obtener información válida, saltar
+            if [ -z "$ruta_relativa" ] || [ -z "$destino" ]; then
+                echo "  Saltando enlace inválido: $nombre_enlace"
+                continue
+            fi
+            
+            # Verificar si el destino existe
+            if [ ! -e "$destino" ]; then
+                echo "  Saltando enlace roto: $nombre_enlace -> $destino"
+                continue
+            fi
+            
+            # Registrar el enlace en el archivo
+            echo -e "${ruta_relativa}\t${destino}" >> "$archivo_enlaces"
+            echo "  Registrado: $ruta_relativa -> $destino"
+            registrar_log "Registrado enlace: $ruta_relativa -> $destino"
+            
+            enlaces_registrados=$((enlaces_registrados + 1))
+        done < <(find "$directorio" -type l -print0 2>/dev/null)
     }
     
     # Procesar elementos según si hay item específico o lista
     if [ -n "$ITEM_ESPECIFICO" ]; then
         local ruta_completa="${LOCAL_DIR}/${ITEM_ESPECIFICO}"
+        
         if [ -L "$ruta_completa" ]; then
             # Es un enlace simbólico directamente
-            registrar_enlace "$ruta_completa" "$archivo_enlaces"
+            procesar_directorio "$(dirname "$ruta_completa")"
         elif [ -d "$ruta_completa" ]; then
             # Es un directorio, buscar enlaces dentro de él
-            buscar_enlaces_en_directorio "$ruta_completa" "$archivo_enlaces"
+            procesar_directorio "$ruta_completa"
+        else
+            echo "El elemento especificado no es un directorio ni un enlace: $ITEM_ESPECIFICO"
         fi
     else
         # Procesar todos los elementos de la lista
         while IFS= read -r elemento; do
             if [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]]; then
                 local ruta_completa="${LOCAL_DIR}/${elemento}"
+                
                 if [ -L "$ruta_completa" ]; then
-                    registrar_enlace "$ruta_completa" "$archivo_enlaces"
+                    procesar_directorio "$(dirname "$ruta_completa")"
                 elif [ -d "$ruta_completa" ]; then
-                    buscar_enlaces_en_directorio "$ruta_completa" "$archivo_enlaces"
+                    procesar_directorio "$ruta_completa"
+                else
+                    echo "Elemento en lista no es directorio ni enlace: $elemento"
                 fi
             fi
         done < "$LISTA_SINCRONIZACION"
     fi
     
     # Sincronizar el archivo de enlaces
-    if [ -s "$archivo_enlaces" ]; then
-        echo "Sincronizando archivo de enlaces..."
+    if [ $enlaces_registrados -gt 0 ]; then
+        echo "Sincronizando archivo de enlaces ($enlaces_registrados enlaces encontrados)..."
         local opciones=$(construir_opciones_rsync)
         local comando="rsync $opciones '$archivo_enlaces' '${PCLOUD_DIR}/${SYMLINKS_FILE}'"
         
@@ -422,15 +445,15 @@ generar_archivo_enlaces() {
             fi
         fi
     else
-        echo "No se encontraron enlaces simbólicos para registrar"
-        registrar_log "No se encontraron enlaces simbólicos para registrar"
+        echo "No se encontraron enlaces simbólicos válidos para registrar"
+        registrar_log "No se encontraron enlaces simbólicos válidos para registrar"
     fi
     
     # Limpiar archivo temporal
     rm -f "$archivo_enlaces"
 }
 
-# Función para recrear enlaces simbólicos
+# Función para recrear enlaces simbólicos (VERSIÓN COMPLETAMENTE NUEVA)
 recrear_enlaces_desde_archivo() {
     local PCLOUD_DIR=$(get_pcloud_dir)
     local archivo_enlaces_origen="${PCLOUD_DIR}/${SYMLINKS_FILE}"
@@ -459,8 +482,8 @@ recrear_enlaces_desde_archivo() {
     local errores=0
     
     while IFS=$'\t' read -r ruta_enlace destino; do
-        # Ignorar líneas vacías
-        if [ -z "$ruta_enlace" ]; then
+        # Ignorar líneas vacías o mal formadas
+        if [ -z "$ruta_enlace" ] || [ -z "$destino" ]; then
             continue
         fi
         
@@ -474,7 +497,7 @@ recrear_enlaces_desde_archivo() {
         
         # Verificar si el enlace ya existe y es correcto
         if [ -L "$ruta_completa" ]; then
-            local destino_actual=$(readlink -f "$ruta_completa")
+            local destino_actual=$(readlink -f "$ruta_completa" 2>/dev/null)
             if [ "$destino_actual" = "$destino" ]; then
                 echo "Enlace ya existe y es correcto: $ruta_enlace -> $destino"
                 registrar_log "Enlace ya existe y es correcto: $ruta_enlace -> $destino"
@@ -509,6 +532,7 @@ recrear_enlaces_desde_archivo() {
     fi
 }
 
+# ... (el resto del script se mantiene igual)
 # Función para sincronizar un elemento
 sincronizar_elemento() {
     local elemento="$1"
