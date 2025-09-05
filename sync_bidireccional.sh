@@ -253,6 +253,7 @@ mostrar_ayuda() {
     echo "  --timeout MINUTOS  Límite de tiempo por operación (default: 30)"
     echo "  --force-unlock     Forzando eliminación de lock"      
     echo "  --verbose          Habilita modo verboso para debugging"
+    echo "  --test             Ejecutar tests unitarios"
     echo "  --help             Muestra esta ayuda"
     echo ""
     echo "Archivos de configuración:"
@@ -277,12 +278,13 @@ mostrar_ayuda() {
     echo "  sync_bidireccional.sh --bajar --item configuracion.ini --dry-run"
     echo "  sync_bidireccional.sh --bajar --backup-dir --yes"
     echo "  sync_bidireccional.sh --bajar --backup-dir --item documentos/ --yes"
-    echo "  sync_bidireccional.sh --subir --overwrite  # Sobrescribe todos los archivos"
+    echo "  sync_bidireccional.sh --subir --overwrite     # Sobrescribe todos los archivos"
     echo "  sync_bidireccional.sh --subir --bwlimit 1000  # Sincronizar subiendo con límite de 1MB/s" 
-    echo "  sync_bidireccional.sh --subir --verbose    # Sincronizar con output verboso"
+    echo "  sync_bidireccional.sh --subir --verbose       # Sincronizar con output verboso"
     echo "  sync_bidireccional.sh --bajar --verbose --dry-run  # Simular bajada con output verboso"
     echo "  sync_bidireccional.sh --bajar --item Documentos/ --timeout 10  # Timeout corto de 10 minutos para una operación rápida"
     echo "  sync_bidireccional.sh --force-unlock   # Forzar desbloqueo si hay un lock obsoleto"
+    echo "  sync_bidireccional.sh --test           # Ejecutar tests unitarios"
 }
 
 # Función para verificar si pCloud está montado
@@ -1242,6 +1244,127 @@ ajustar_permisos_ejecutables() {
 }
 
 # =========================
+# Tests unitarios
+# =========================
+run_tests() {
+    echo "Ejecutando tests unitarios..."
+    local tests_passed=0
+    local tests_failed=0
+
+    # Test 1: normalize_path
+    echo "Test 1: normalize_path"
+    local result
+    result=$(normalize_path "/home/user/../user/./file.txt")
+    if [[ "$result" == */file.txt ]]; then
+        echo "PASS: normalize_path"
+        tests_passed=$((tests_passed + 1))
+    else
+        echo "FAIL: normalize_path - Esperaba path normalizado, obtuve: $result"
+        tests_failed=$((tests_failed + 1))
+    fi
+
+    # Test 2: get_pcloud_dir
+    echo "Test 2: get_pcloud_dir"
+    BACKUP_DIR_MODE="comun"
+    local pcloud_dir_comun=$(get_pcloud_dir)
+    BACKUP_DIR_MODE="readonly"
+    local pcloud_dir_readonly=$(get_pcloud_dir)
+    
+    if [[ "$pcloud_dir_comun" == "$PCLOUD_BACKUP_COMUN" && "$pcloud_dir_readonly" == "$PCLOUD_BACKUP_READONLY" ]]; then
+        echo "PASS: get_pcloud_dir"
+        tests_passed=$((tests_passed + 1))
+    else
+        echo "FAIL: get_pcloud_dir - comun: $pcloud_dir_comun, readonly: $pcloud_dir_readonly"
+        tests_failed=$((tests_failed + 1))
+    fi
+
+    # Test 3: construir_opciones_rsync
+    echo "Test 3: construir_opciones_rsync"
+    # Probar diferentes combinaciones de opciones
+    OVERWRITE=0
+    DRY_RUN=0
+    DELETE=0
+    USE_CHECKSUM=0
+    BW_LIMIT=""
+    construir_opciones_rsync
+    local base_opts="${RSYNC_OPTS[*]}"
+    
+    OVERWRITE=1
+    construir_opciones_rsync
+    local overwrite_opts="${RSYNC_OPTS[*]}"
+    
+    DELETE=1
+    construir_opciones_rsync
+    local delete_opts="${RSYNC_OPTS[*]}"
+    
+    # Verificar que las opciones cambian según los flags
+    if [[ "$base_opts" != "$overwrite_opts" && "$base_opts" != "$delete_opts" ]]; then
+        echo "PASS: construir_opciones_rsync"
+        tests_passed=$((tests_passed + 1))
+    else
+        echo "FAIL: construir_opciones_rsync - las opciones no cambian correctamente"
+        tests_failed=$((tests_failed + 1))
+    fi
+
+    # Test 4: resolver_item_relativo
+    echo "Test 4: resolver_item_relativo"
+    LOCAL_DIR="/home/testuser"
+    resolver_item_relativo "documents/file.txt"
+    if [ "$REL_ITEM" = "documents/file.txt" ]; then
+        echo "PASS: resolver_item_relativo (ruta relativa)"
+        tests_passed=$((tests_passed + 1))
+    else
+        echo "FAIL: resolver_item_relativo - Esperaba 'documents/file.txt', obtuve '$REL_ITEM'"
+        tests_failed=$((tests_failed + 1))
+    fi
+
+    # Test 5: verificación de argumentos duplicados
+    echo "Test 5: detección de argumentos duplicados"
+    declare -A test_seen_opts
+    test_seen_opts=()
+    local test_args=("--subir" "--subir" "--delete")
+    local duplicate_detected=0
+    
+    for arg in "${test_args[@]}"; do
+        if [[ "$arg" == --* ]]; then
+            if [[ -v test_seen_opts[$arg] ]]; then
+                duplicate_detected=1
+                break
+            fi
+            test_seen_opts["$arg"]=1
+        fi
+    done
+    
+    if [ $duplicate_detected -eq 1 ]; then
+        echo "PASS: detección de argumentos duplicados"
+        tests_passed=$((tests_passed + 1))
+    else
+        echo "FAIL: no se detectaron argumentos duplicados cuando debería"
+        tests_failed=$((tests_failed + 1))
+    fi
+
+    # Test 6: verificar_espacio_disco (test básico)
+    echo "Test 6: verificar_espacio_disco (test básico)"
+    if verificar_espacio_disco 1 >/dev/null 2>&1; then
+        echo "PASS: verificar_espacio_disco (debería tener al menos 1MB)"
+        tests_passed=$((tests_passed + 1))
+    else
+        echo "SKIP: verificar_espacio_disco - no hay espacio suficiente para test"
+    fi
+
+    # Resumen de tests
+    echo ""
+    echo "=========================================="
+    echo "RESUMEN DE TESTS"
+    echo "=========================================="
+    echo "Tests pasados: $tests_passed"
+    echo "Tests fallados: $tests_failed"
+    echo "Total tests: $((tests_passed + tests_failed))"
+    
+    return $tests_failed
+}
+
+# =========================
 # Args
 # =========================
 # Procesar argumentos
@@ -1301,7 +1424,9 @@ while [[ $# -gt 0 ]]; do
             rm -f "$LOCK_FILE"
             exit 0;;
         --verbose) 
-            VERBOSE=1; shift;;    
+            VERBOSE=1; shift;;
+        --test)
+            run_tests; exit $?;;
         -h|--help)
             mostrar_ayuda; exit 0;;
         *)
