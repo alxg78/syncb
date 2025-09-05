@@ -446,16 +446,21 @@ verificar_archivos_configuracion() {
 # Construye opciones de rsync (en array para evitar problemas de espacios)
 declare -a RSYNC_OPTS
 construir_opciones_rsync() {
-    RSYNC_OPTS=(--recursive --verbose --times --progress --whole-file --no-links --itemize-changes)
+    RSYNC_OPTS=(
+        --recursive 
+        --verbose 
+        --times 
+        --progress 
+        --whole-file 
+        --no-links 
+        --itemize-changes
+    )
+    
     [ $OVERWRITE -eq 0 ] && RSYNC_OPTS+=(--update)
     [ $DRY_RUN -eq 1 ] && RSYNC_OPTS+=(--dry-run)
     [ $DELETE -eq 1 ] && RSYNC_OPTS+=(--delete-delay)
+    [ $USE_CHECKSUM -eq 1 ] && RSYNC_OPTS+=(--checksum)
 
-    if [ $USE_CHECKSUM -eq 1 ]; then
-        RSYNC_OPTS+=(--checksum)
-    fi
-
-    # Si existe archivo de exclusiones, preferimos pasarla como --exclude-from para eficiencia
     if [ -n "$EXCLUSIONES" ] && [ -f "$EXCLUSIONES" ]; then
         RSYNC_OPTS+=(--exclude-from="$EXCLUSIONES")
     fi
