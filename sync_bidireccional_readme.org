@@ -1,84 +1,165 @@
-#+TITLE: sync_bidireccional.sh
-#+AUTHOR: Tu Nombre
-#+DATE: 2025-09-05
-#+DESCRIPTION: Sincronización bidireccional entre directorio local y pCloud
+#+TITLE: sync_bidireccional.sh - Sincronización Bidireccional con pCloud
+#+AUTHOR: Automático
+#+DATE: Generado el $(date +%Y-%m-%d)
 
 * Descripción
-Script de sincronización bidireccional entre un directorio local (normalmente $HOME) y un directorio de pCloud. Permite subir, bajar, simular operaciones, manejar enlaces simbólicos y aplicar reglas de exclusión.
+Script avanzado de sincronización bidireccional entre directorio local y pCloud Drive con capacidades de backup, manejo de enlaces simbólicos y sistema de logging.
 
-* Características
-- Sincronización bidireccional (local ↔ pCloud)
-- Modo dry-run (simulación)
-- Eliminación de archivos obsoletos (--delete)
+* Características Principales
+- Sincronización bidireccional (subir/bajar)
 - Manejo de enlaces simbólicos
-- Compatibilidad con backup de solo lectura
-- Logging detallado
-- Ajuste de permisos ejecutables
-- Comparación opcional con checksum
+- Sistema de locking para ejecuciones simultáneas
+- Verificación de espacio en disco
+- Modo dry-run y verbose
+- Rotación automática de logs
+- Compatibilidad con macOS y Linux
+- Soporte para múltiples configuraciones por hostname
 
 * Requisitos
-- bash >= 4.0
+- Bash 4.0+
 - rsync
-- curl (opcional para verificación de conectividad)
-- find, readlink, mktemp, stat
-- pCloud Drive montado
+- pCloud Drive montado localmente
+- Herramientas básicas: grep, awk, find, stat
+
+* Instalación
+1. Guardar el script en un directorio del PATH
+2. Hacer ejecutable:
+   #+BEGIN_SRC shell
+   chmod +x sync_bidireccional.sh
+   #+END_SRC
+3. Configurar los archivos de configuración (ver sección Configuración)
 
 * Configuración
-- `PCLOUD_MOUNT_POINT`: punto de montaje de pCloud
-- `LOCAL_DIR`: directorio local a sincronizar
-- `PCLOUD_BACKUP_COMUN`: ruta de backup común en pCloud
-- `PCLOUD_BACKUP_READONLY`: ruta de backup readonly
-- `LISTA_SINCRONIZACION`: archivo INI con rutas a sincronizar
-- `EXCLUSIONES`: archivo INI con rutas a excluir
 
-* Opciones de línea de comando
-** Modos principales (obligatorio)
-- `--subir`      : sincroniza desde local → pCloud
-- `--bajar`      : sincroniza desde pCloud → local
+** Archivos de Configuración
+El script busca estos archivos en el directorio del script o directorio actual:
 
-** Opciones secundarias
-- `--delete`     : elimina archivos en destino que no existen en origen
-- `--dry-run`    : simula la operación
-- `--item ELEMENTO`: sincroniza solo el elemento indicado
-- `--yes`        : no pide confirmación
-- `--backup-dir` : usa backup de solo lectura
-- `--overwrite`  : sobrescribe archivos existentes
-- `--checksum`   : fuerza comparación con checksum
-- `-h, --help`   : muestra ayuda
+- ~sync_bidireccional_directorios.ini~ :: Lista principal de elementos a sincronizar
+- ~sync_bidireccional_directorios_<hostname>.ini~ :: Configuración específica por host
+- ~sync_bidireccional_exclusiones.ini~ :: Patrones de exclusión para rsync
 
-* Ejemplos de uso
-- Subir todo:
-  #+BEGIN_SRC sh
-  ./sync_bidireccional.sh --subir
-  #+END_SRC
+** Variables de Entorno
+El script usa estas variables configurables:
 
-- Bajar todo en modo simulación:
-  #+BEGIN_SRC sh
-  ./sync_bidireccional.sh --bajar --dry-run
-  #+END_SRC
+- ~PCLOUD_MOUNT_POINT~ :: Punto de montaje de pCloud (por defecto: ~$HOME/pCloudDrive~)
+- ~LOCAL_DIR~ :: Directorio local a sincronizar (por defecto: ~$HOME~)
+- ~LOG_FILE~ :: Archivo de log (por defecto: ~$HOME/sync_bidireccional.log~)
 
-- Subir solo un directorio específico y eliminar archivos obsoletos:
-  #+BEGIN_SRC sh
-  ./sync_bidireccional.sh --subir --item documentos/ --delete --yes
-  #+END_SRC
+* Uso
 
-- Sincronizar con backup de solo lectura:
-  #+BEGIN_SRC sh
-  ./sync_bidireccional.sh --bajar --backup-dir --yes
-  #+END_SRC
+** Sintaxis Básica
+#+BEGIN_SRC shell
+sync_bidireccional.sh [--subir|--bajar] [OPCIONES]
+#+END_SRC
 
-* Archivos de configuración
-- Lista de directorios:
-  - `sync_bidireccional_directorios.ini`
-  - `sync_bidireccional_directorios_<hostname>.ini`
-- Exclusiones:
-  - `sync_bidireccional_exclusiones.ini`
+** Opciones Principales
+| Opción          | Descripción                                      |
+|-----------------|--------------------------------------------------|
+| --subir         | Sincroniza local → pCloud                       |
+| --bajar         | Sincroniza pCloud → local                       |
+| --delete        | Elimina archivos obsoletos en destino           |
+| --dry-run       | Simula sin hacer cambios reales                 |
+| --item ELEMENTO | Sincroniza solo el elemento especificado        |
+| --yes           | Ejecuta sin confirmación                        |
+| --backup-dir    | Usa directorio de backup de solo lectura        |
+| --overwrite     | Sobrescribe archivos en destino                 |
+| --checksum      | Usa checksum para comparación (más lento)       |
+| --bwlimit KB/s  | Limita velocidad de transferencia               |
+| --timeout MIN   | Límite de tiempo por operación (default: 30)    |
+| --force-unlock  | Fuerza eliminación de lock obsoleto             |
+| --verbose       | Habilita modo verboso                           |
+| --test          | Ejecuta tests unitarios                         |
+| --help          | Muestra ayuda detallada                         |
 
-* Logging
-- Archivo: `~/sync_bidireccional.log`
-- Contiene información de:
-  - Inicio y fin de sincronización
-  - Archivos transferidos, creados, actualizados, borrados
-  - Enlaces simbólicos detectados, creados, existentes, errores
-  - Comandos `rsync` ejecutados
+** Ejemplos Comunes
 
+*** Sincronización normal
+#+BEGIN_SRC shell
+# Subir cambios a pCloud
+sync_bidireccional.sh --subir
+
+# Bajar cambios desde pCloud
+sync_bidireccional.sh --bajar
+#+END_SRC
+
+*** Sincronización con eliminación
+#+BEGIN_SRC shell
+# Subir y eliminar archivos obsoletos
+sync_bidireccional.sh --subir --delete --yes
+#+END_SRC
+
+*** Sincronización de elemento específico
+#+BEGIN_SRC shell
+# Sincronizar solo un directorio específico
+sync_bidireccional.sh --subir --item Documentos/ --dry-run
+#+END_SRC
+
+*** Sincronización con límites
+#+BEGIN_SRC shell
+# Con límite de velocidad y tiempo
+sync_bidireccional.sh --bajar --bwlimit 1000 --timeout 10
+#+END_SRC
+
+* Manejo de Enlaces Simbólicos
+El script gestiona enlaces simbólicos mediante un archivo metadato (~.sync_bidireccional_symlinks.meta~) que:
+1. Se crea durante la subida con información de enlaces
+2. Se usa durante la bajada para recrear enlaces
+
+Los enlaces que apuntan fuera del directorio home se normalizan para usar ~$USERNAME~.
+
+* Sistema de Locking
+El script implementa locking para prevenir ejecuciones simultáneas:
+- Lock file: ~/tmp/sync_bidireccional.lock~
+- Timeout automático: 1 hora
+- Forzar desbloqueo: ~--force-unlock~
+
+* Logging y Monitoreo
+- Log principal: ~$HOME/sync_bidireccional.log~
+- Rotación automática al alcanzar 10MB
+- Formatos de mensaje coloreados en terminal
+- Estadísticas detalladas al finalizar
+
+* Troubleshooting
+
+** Error: Punto de montaje no encontrado
+Verificar que pCloud Drive esté instalado y montado en ~$HOME/pCloudDrive~
+
+** Error: Lock existente
+#+BEGIN_SRC shell
+# Forzar eliminación de lock
+sync_bidireccional.sh --force-unlock
+#+END_SRC
+
+** Error: Espacio insuficiente
+El script verifica espacio pero puede necesitar más del estimado
+
+** Modo verboso para debugging
+#+BEGIN_SRC shell
+sync_bidireccional.sh --subir --verbose --dry-run
+#+END_SRC
+
+* Tests Unitarios
+Ejecutar tests de validación:
+#+BEGIN_SRC shell
+sync_bidireccional.sh --test
+#+END_SRC
+
+* Limitaciones Conocidas
+- No soporta sincronización continúa (solo por ejecución)
+- El manejo de enlaces simbólicos complejos puede fallar
+- No comprime datos durante transferencia
+- Timeout por operación, no global
+
+* Seguridad
+- Verificación de rutas para prevenir path traversal
+- Validación de permisos de escritura
+- Sanitización de entradas (en desarrollo)
+
+* Mantenimiento
+El script incluye funcionalidades automáticas de mantenimiento:
+- Rotación de logs
+- Limpieza de archivos temporales
+- Verificación de dependencias
+
+* Soporte
+Para problemas o mejoras, contactar con el mantenedor del script.
