@@ -51,6 +51,10 @@ OVERWRITE=0
 BACKUP_DIR_MODE="comun"
 USE_CHECKSUM=0
 
+# Variables para estadísticas
+declare -i ARCHIVOS_SINCRONIZADOS=0
+declare -i ERRORES_SINCRONIZACION=0
+
 # Temp files to cleanup
 TEMP_FILES=()
 
@@ -71,6 +75,19 @@ get_pcloud_dir() {
         echo "$PCLOUD_BACKUP_READONLY"
     else
         echo "$PCLOUD_BACKUP_COMUN"
+    fi
+}
+
+# Función para verificar conectividad con pCloud
+verificar_conectividad_pcloud() {
+    if command -v curl >/dev/null 2>&1; then
+        if ! timeout 5s curl -s https://www.pcloud.com/ > /dev/null; then
+            echo "ADVERTENCIA: No se pudo conectar a pCloud. Verifica tu conexión a Internet."
+            registrar_log "ADVERTENCIA: No se pudo verificar conectividad con pCloud"
+        fi
+    else
+        echo "ADVERTENCIA: curl no disponible, omitiendo verificación de conectividad"
+        registrar_log "ADVERTENCIA: curl no disponible, omitiendo verificación de conectividad"
     fi
 }
 
@@ -132,18 +149,18 @@ mostrar_ayuda() {
     echo "Uso: $0 [OPCIONES]"
     echo ""
     echo "Opciones PRINCIPALES (obligatorio una de ellas):"
-    echo "  --subir           Sincroniza desde el directorio local a pCloud (${LOCAL_DIR} → pCloud)"
-    echo "  --bajar           Sincroniza desde pCloud al directorio local (pCloud → ${LOCAL_DIR})"
+    echo "  --subir            Sincroniza desde el directorio local a pCloud (${LOCAL_DIR} → pCloud)"
+    echo "  --bajar            Sincroniza desde pCloud al directorio local (pCloud → ${LOCAL_DIR})"
     echo ""
     echo "Opciones SECUNDARIAS (opcionales):"
-    echo "  --delete          Elimina en destino los archivos que no existan en origen (delete-delay)"
-    echo "  --dry-run         Simula la operación sin hacer cambios reales"
-    echo "  --item ELEMENTO   Sincroniza solo el elemento especificado (archivo o directorio)"
-    echo "  --yes             No pregunta confirmación, ejecuta directamente"
-    echo "  --backup-dir      Usa el directorio de backup de solo lectura (pCloud Backup) en lugar de Backup_Comun"
-    echo "  --overwrite       Sobrescribe todos los archivos en destino (no usa --update)"
-    echo "  --checksum        Fuerza comparación con checksum (más lento)"  
-    echo "  --help            Muestra esta ayuda"
+    echo "  --delete           Elimina en destino los archivos que no existan en origen (delete-delay)"
+    echo "  --dry-run          Simula la operación sin hacer cambios reales"
+    echo "  --item ELEMENTO    Sincroniza solo el elemento especificado (archivo o directorio)"
+    echo "  --yes              No pregunta confirmación, ejecuta directamente"
+    echo "  --backup-dir       Usa el directorio de backup de solo lectura (pCloud Backup) en lugar de Backup_Comun"
+    echo "  --overwrite        Sobrescribe todos los archivos en destino (no usa --update)"
+    echo "  --checksum         Fuerza comparación con checksum (más lento)"  
+    echo "  --help             Muestra esta ayuda"
     echo ""
     echo "Archivos de configuración:"
     echo "  - Directorio del script: ${SCRIPT_DIR}/"
@@ -234,7 +251,7 @@ verificar_pcloud_montado() {
         rm -f "$test_file"
     fi
 
-    echo "✓ Verificación de pCloud: OK - El directorio está montado y accesible"
+    echo "✓ Verificación de pCloud: OK - El directorio está montado vàccesible"
 }
 
 # Función para mostrar el banner informativo
@@ -311,9 +328,19 @@ confirmar_ejecucion() {
 
 # Función para verificar y crear archivo de log
 inicializar_log() {
-    # Truncar log si supera 5MB
-    if [ -f "$LOG_FILE" ] && [ $(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0) -gt 5242880 ]; then
-        : > "$LOG_FILE"
+    # Truncar log si supera 5MB (compatible con macOS y Linux)
+    if [ -f "$LOG_FILE" ]; then
+        if [ "$(uname)" = "Darwin" ]; then
+            # macOS
+            LOG_SIZE=$(stat -f%z "$LOG_FILE" 2>/dev/null || echo 0)
+        else
+            # Linux
+            LOG_SIZE=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
+        fi
+        
+        if [ $LOG_SIZE -gt 5242880 ]; then
+            : > "$LOG_FILE"
+        fi
     fi
 
     touch "$LOG_FILE"
@@ -471,6 +498,14 @@ generar_archivo_enlaces() {
     else
         while IFS= read -r elemento || [ -n "$elemento" ]; do
             [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]] || continue
+            
+            # Validación de seguridad adicional
+            if [[ "$elemento" == *".."* ]]; then
+                echo "ERROR: Elemento contiene '..' - posible path traversal: $elemento"
+                registrar_log "ERROR: Elemento contiene '..' - posible path traversal: $elemento"
+                continue
+            fi
+            
             local ruta_completa="${LOCAL_DIR}/${elemento}"
             if [ -L "$ruta_completa" ]; then
                 registrar_enlace "$ruta_completa"
@@ -635,6 +670,12 @@ sincronizar_elemento() {
         destino="${destino%/}/"
     fi
 
+    # Advertencia si el elemento contiene espacios
+    if [[ "$elemento" =~ [[:space:]] ]]; then
+        echo "ADVERTENCIA: El elemento contiene espacios: '$elemento'"
+        registrar_log "ADVERTENCIA: Elemento con espacios: $elemento"
+    fi
+
     # Crear directorio de destino si no existe (solo si no estamos en dry-run)
     local dir_destino
     dir_destino=$(dirname "$destino")
@@ -658,17 +699,43 @@ sincronizar_elemento() {
     print_rsync_command "$origen" "$destino"
     registrar_log "Comando ejecutado: rsync ${RSYNC_OPTS[*]} $origen $destino"
 
-    # Ejecutar rsync (array expansion para evitar problemas con espacios)
-    if salida=$(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino" 2>&1); then
-        echo "✓ Sincronización completada: $elemento"
-        registrar_log "Sincronización completada: $elemento"
-        return 0
+    # Ejecutar rsync con timeout si está disponible
+    local salida
+    if command -v timeout >/dev/null 2>&1; then
+        # Usar timeout para evitar operaciones bloqueadas (30 minutos máximo)
+        if salida=$(timeout 30m rsync "${RSYNC_OPTS[@]}" "$origen" "$destino" 2>&1); then
+            echo "✓ Sincronización completada: $elemento"
+            registrar_log "Sincronización completada: $elemento"
+            ARCHIVOS_SINCRONIZADOS+=1
+            return 0
+        else
+            local rc=$?
+            if [ $rc -eq 124 ]; then
+                echo "✗ Error: Timeout en sincronización: $elemento"
+                registrar_log "Error: Timeout en sincronización: $elemento"
+            else
+                echo "✗ Error en sincronización: $elemento (código: $rc)"
+                echo "Salida de error: $salida"
+                registrar_log "Error en sincronización: $elemento (código: $rc) - salida: $salida"
+            fi
+            ERRORES_SINCRONIZACION+=1
+            return $rc
+        fi
     else
-        local rc=$?
-        echo "✗ Error en sincronización: $elemento (código: $rc)"
-        echo "Salida de error: $salida"
-        registrar_log "Error en sincronización: $elemento (código: $rc) - salida: $salida"
-        return $rc
+        # Sin timeout
+        if salida=$(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino" 2>&1); then
+            echo "✓ Sincronización completada: $elemento"
+            registrar_log "Sincronización completada: $elemento"
+            ARCHIVOS_SINCRONIZADOS+=1
+            return 0
+        else
+            local rc=$?
+            echo "✗ Error en sincronización: $elemento (código: $rc)"
+            echo "Salida de error: $salida"
+            registrar_log "Error en sincronización: $elemento (código: $rc) - salida: $salida"
+            ERRORES_SINCRONIZACION+=1
+            return $rc
+        fi
     fi
 }
 
@@ -680,6 +747,9 @@ sincronizar() {
     
     # Verificar si pCloud está montado antes de continuar
     verificar_pcloud_montado
+    
+    # Verificar conectividad con pCloud (solo advertencia)
+    verificar_conectividad_pcloud
 
     # Preguntar confirmación antes de continuar (excepto en dry-run o si se usa --yes)
     [ $DRY_RUN -eq 0 ] && confirmar_ejecucion
@@ -693,6 +763,15 @@ sincronizar() {
         echo "Procesando lista de sincronización: ${LISTA_SINCRONIZACION}"
         while IFS= read -r linea || [ -n "$linea" ]; do
             [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
+            
+            # Validación de seguridad adicional
+            if [[ "$linea" == *".."* ]]; then
+                echo "ERROR: Elemento contiene '..' - posible path traversal: $linea"
+                registrar_log "ERROR: Elemento contiene '..' - posible path traversal: $linea"
+                exit_code=1
+                continue
+            fi
+            
             sincronizar_elemento "$linea" || exit_code=1
             echo "------------------------------------------"
         done < "$LISTA_SINCRONIZACION"
@@ -749,6 +828,13 @@ ajustar_permisos_ejecutables() {
                 exit_code=1
                 continue
             fi
+            
+            # Verificar que tenemos permisos de escritura
+            if [ ! -w "$ruta_completa" ]; then
+                echo "Advertencia: Sin permisos de escritura para: $ruta_completa"
+                exit_code=1
+                continue
+            fi
 
             if [ -f "$ruta_completa" ]; then
                 # Es un archivo específico
@@ -783,76 +869,52 @@ while [[ $# -gt 0 ]]; do
         --bajar)
             [ -n "$MODO" ] && { echo "ERROR: No puedes usar --subir y --bajar simultáneamente"; exit 1; }
             MODO="bajar"; shift;;
-        --delete) DELETE=1; shift;;
-        --dry-run) DRY_RUN=1; shift;;
+        --delete)
+            DELETE=1; shift;;
+        --dry-run)
+            DRY_RUN=1; shift;;
         --item)
-            [ $# -lt 2 ] && { echo "ERROR: La opción --item requiere un argumento"; exit 1; }
-            ITEM_ESPECIFICO="$2"; 
-            # Validación de seguridad para --item
-            if [[ "$ITEM_ESPECIFICO" == *".."* ]]; then
-                echo "ERROR: El elemento no puede contener '..' por razones de seguridad"
-                exit 1
-            fi
-            shift 2;;
-        --yes) YES=1; shift;;
-        --backup-dir) BACKUP_DIR_MODE="readonly"; shift;;
-        --overwrite) OVERWRITE=1; shift;;
-        --checksum) USE_CHECKSUM=1; shift;;
-        --help) mostrar_ayuda; exit 0;;
-        *) echo "ERROR: Opción desconocida: $1"; mostrar_ayuda; exit 1;;
+            [ -z "$2" ] && { echo "ERROR: --item requiere un argumento"; exit 1; }
+            ITEM_ESPECIFICO="$2"; shift 2;;
+        --yes)
+            YES=1; shift;;
+        --backup-dir)
+            BACKUP_DIR_MODE="readonly"; shift;;
+        --overwrite)
+            OVERWRITE=1; shift;;
+        --checksum)
+            USE_CHECKSUM=1; shift;;
+        -h|--help)
+            mostrar_ayuda; exit 0;;
+        *)
+            echo "ERROR: Opción desconocida: $1"; mostrar_ayuda; exit 1;;
     esac
 done
 
-# Validación principal: debe tener exactamente un modo
-[ -z "$MODO" ] && { echo "ERROR: Debes especificar --subir o --bajar"; mostrar_ayuda; exit 1; }
+# Validación final
+if [ -z "$MODO" ]; then
+    echo "ERROR: Debes especificar --subir o --bajar"
+    mostrar_ayuda
+    exit 1
+fi
 
 # =========================
-# Run
+# Main
 # =========================
 verificar_dependencias
 find_config_files
 verificar_archivos_configuracion
 inicializar_log
 
-# Limpieza de temporales al salir
-trap 'if [ "${#TEMP_FILES[@]}" -gt 0 ]; then rm -f "${TEMP_FILES[@]}" 2>/dev/null || true; fi' EXIT
-
-# Ejecutar sincronización
 sincronizar
-resultado=$?
-
-# Llamar a la función para ajustar permisos solo en modo --bajar y si no es dry-run
-if [ "$MODO" = "bajar" ] && [ $DRY_RUN -eq 0 ]; then
-    # Aquí defines los patrones que deseas procesar
-    ajustar_permisos_ejecutables \
-        "./*.sh" \
-        ".local/bin/*.sh" \
-        ".local/bin/*.bash" \
-        ".local/bin/*.py" \
-        ".local/bin/*.jl" \
-        ".local/bin/pcloud" \
-        ".config/dotfiles/*.sh"
-elif [ "$MODO" = "bajar" ] && [ $DRY_RUN -eq 1 ]; then
-    echo "Modo simulación: Se omitió el ajuste de permisos de ejecución (solo aplica en modo --bajar)"
-fi
+exit_code=$?
 
 echo ""
 echo "=========================================="
-if [ $resultado -eq 0 ]; then
-    if [ $DRY_RUN -eq 1 ]; then
-        echo "✓ Simulación completada exitosamente"
-        registrar_log "Simulación completada exitosamente"
-    else
-        echo "✓ Sincronización completada exitosamente"
-        registrar_log "Sincronización completada exitosamente"
-    fi
-else
-    echo "✗ Sincronización completada con errores"
-    registrar_log "Sincronización completada con errores"
-fi
-
-echo "Log guardado en: $LOG_FILE"
+echo "Sincronización finalizada: $(date)"
+echo "Elementos sincronizados: $ARCHIVOS_SINCRONIZADOS"
+echo "Errores: $ERRORES_SINCRONIZACION"
+echo "Log: $LOG_FILE"
 echo "=========================================="
 
-# Asegurar el código de salida correcto
-exit $resultado
+exit $exit_code
