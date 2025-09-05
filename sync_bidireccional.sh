@@ -26,7 +26,9 @@ HOSTNAME_RTVA="feynman.rtva.dnf"
 LISTA_SINCRONIZACION=""
 EXCLUSIONES=""
 LOG_FILE="$HOME/sync_bidireccional.log"
-SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"  # Archivo para almacenar información de enlaces simbólicos
+
+# Archivo para almacenar información de enlaces simbólicos
+SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"  
 
 # Variables de control
 MODO=""
@@ -189,7 +191,7 @@ verificar_pcloud_montado() {
         fi
     fi
     
-    echo "✓ Verificación de pCloud: OK - El directorio está montado y accesible"
+    echo "✓ Verificación de pCloud: OK - El directorio está montado и accesible"
 }
 
 # Función para mostrar el banner informativo
@@ -312,8 +314,15 @@ verificar_archivos_configuracion() {
 
 # Función para construir opciones de rsync
 construir_opciones_rsync() {
-    local opciones="--recursive --verbose --times --checksum --progress --whole-file --no-links"
-    
+    #local opciones="-avh --checksum --progress"
+    #local opciones="-avh --checksum --progress --whole-file"
+    #local opciones="-avl --no-perms --no-owner --no-group --checksum --progress --whole-file" 
+    #local opciones="-av --no-perms --no-owner --no-group --checksum --progress --copy-links" 
+    #local opciones="-av --no-perms --no-owner --no-group --checksum --progress --whole-file --copy-links" 
+    # rsync -rv 
+    local opciones="--recursive --verbose --times --checksum --progress --whole-file --no-links" 
+
+ 
     # Añadir --update si no estamos en modo sobrescritura
     if [ $OVERWRITE -eq 0 ]; then
         opciones="$opciones --update"
@@ -351,42 +360,51 @@ generar_archivo_enlaces() {
     # Limpiar archivo existente
     > "$archivo_enlaces"
     
+    # Función auxiliar para procesar un elemento
+    procesar_elemento() {
+        local elemento="$1"
+        local ruta_completa="${LOCAL_DIR}/${elemento}"
+        
+        if [ ! -e "$ruta_completa" ]; then
+            return
+        fi
+        
+        if [ -d "$ruta_completa" ]; then
+            # Buscar todos los enlaces simbólicos en el directorio
+            find "$ruta_completa" -type l -print0 | while IFS= read -r -d '' enlace; do
+                registrar_enlace "$enlace" "$archivo_enlaces"
+            done
+        elif [ -L "$ruta_completa" ]; then
+            # Es un enlace simbólico directamente
+            registrar_enlace "$ruta_completa" "$archivo_enlaces"
+        fi
+    }
+    
     # Función para registrar un enlace en el archivo
     registrar_enlace() {
         local enlace="$1"
         local archivo_enlaces="$2"
         
-        # Obtener ruta relativa del enlace (no del destino)
+        # Obtener ruta relativa y destino
         local ruta_relativa=$(realpath --relative-to="${LOCAL_DIR}" "$enlace")
-        # Obtener el destino del enlace
-        local destino=$(readlink -f "$enlace")
+        local destino=$(readlink "$enlace")
         
-        # Registrar en el archivo: ruta del enlace y destino
+        # Registrar en el archivo
         echo -e "${ruta_relativa}\t${destino}" >> "$archivo_enlaces"
         echo "Registrado enlace: $ruta_relativa -> $destino"
         registrar_log "Registrado enlace: $ruta_relativa -> $destino"
     }
     
-    # Función para buscar enlaces en un directorio
-    buscar_enlaces_en_directorio() {
-        local directorio="$1"
-        local archivo_enlaces="$2"
-        
-        # Buscar todos los enlaces simbólicos en el directorio
-        find "$directorio" -type l | while read -r enlace; do
-            # Verificar que es un enlace simbólico y no el destino de uno
-            if [ -L "$enlace" ]; then
-                registrar_enlace "$enlace" "$archivo_enlaces"
+    # Procesar elementos según si hay item específico o lista
+    if [ -n "$ITEM_ESPECIFICO" ]; then
+        procesar_elemento "$ITEM_ESPECIFICO"
+    else
+        while IFS= read -r elemento; do
+            if [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]]; then
+                procesar_elemento "$elemento"
             fi
-        done
-    }
-    
-    # DEBUG: Mostrar información sobre lo que se está procesando
-    echo "DEBUG: Procesando directorio .local/bin"
-    find "${LOCAL_DIR}/.local/bin" -type l -exec ls -la {} \;
-    
-    # Procesar específicamente el directorio .local/bin
-    buscar_enlaces_en_directorio "${LOCAL_DIR}/.local/bin" "$archivo_enlaces"
+        done < "$LISTA_SINCRONIZACION"
+    fi
     
     # Sincronizar el archivo de enlaces
     if [ -s "$archivo_enlaces" ]; then
@@ -444,13 +462,13 @@ recrear_enlaces_desde_archivo() {
     local contador=0
     local errores=0
     
-    while IFS=$'\t' read -r ruta_enlace destino; do
+    while IFS=$'\t' read -r ruta_relativa destino; do
         # Ignorar líneas vacías
-        if [ -z "$ruta_enlace" ]; then
+        if [ -z "$ruta_relativa" ]; then
             continue
         fi
         
-        local ruta_completa="${LOCAL_DIR}/${ruta_enlace}"
+        local ruta_completa="${LOCAL_DIR}/${ruta_relativa}"
         local dir_padre=$(dirname "$ruta_completa")
         
         # Crear directorio padre si no existe
@@ -460,10 +478,10 @@ recrear_enlaces_desde_archivo() {
         
         # Verificar si el enlace ya existe y es correcto
         if [ -L "$ruta_completa" ]; then
-            local destino_actual=$(readlink -f "$ruta_completa")
+            local destino_actual=$(readlink "$ruta_completa")
             if [ "$destino_actual" = "$destino" ]; then
-                echo "Enlace ya existe y es correcto: $ruta_enlace -> $destino"
-                registrar_log "Enlace ya existe y es correcto: $ruta_enlace -> $destino"
+                echo "Enlace ya existe y es correcto: $ruta_relativa -> $destino"
+                registrar_log "Enlace ya existe y es correcto: $ruta_relativa -> $destino"
                 continue
             fi
         fi
@@ -475,12 +493,12 @@ recrear_enlaces_desde_archivo() {
             contador=$((contador + 1))
         else
             if ln -sfn "$destino" "$ruta_completa" 2>/dev/null; then
-                echo "Creado enlace: $ruta_enlace -> $destino"
-                registrar_log "Creado enlace: $ruta_enlace -> $destino"
+                echo "Creado enlace: $ruta_relativa -> $destino"
+                registrar_log "Creado enlace: $ruta_relativa -> $destino"
                 contador=$((contador + 1))
             else
-                echo "Error creando enlace: $ruta_enlace -> $destino"
-                registrar_log "Error creando enlace: $ruta_enlace -> $destino"
+                echo "Error creando enlace: $ruta_relativa -> $destino"
+                registrar_log "Error creando enlace: $ruta_relativa -> $destino"
                 errores=$((errores + 1))
             fi
         fi
