@@ -340,10 +340,6 @@ construir_opciones_rsync() {
     echo "$opciones"
 }
 
-#!/bin/bash
-
-# ... (el resto del script se mantiene igual hasta la función de enlaces)
-
 # Función para generar archivo de enlaces simbólicos (VERSIÓN COMPLETAMENTE NUEVA)
 generar_archivo_enlaces() {
     local archivo_enlaces="$1"
@@ -532,7 +528,6 @@ recrear_enlaces_desde_archivo() {
     fi
 }
 
-# ... (el resto del script se mantiene igual)
 # Función para sincronizar un elemento
 sincronizar_elemento() {
     local elemento="$1"
@@ -557,7 +552,7 @@ sincronizar_elemento() {
         return 1
     fi
     
-    # Determinar si es directorio or archivo
+    # Determinar si es directorio o archivo
     if [ -d "$origen" ]; then
         origen="${origen}/"
         # Solo añadir barra al destino si es un directorio
