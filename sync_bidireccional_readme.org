@@ -1,0 +1,73 @@
+🔍 Análisis de la lógica
+
+Modo de ejecución (--subir / --bajar)
+
+Correcto: impide usar ambos modos a la vez.
+
+Usa MODO como variable central, y la validación está bien implementada.
+
+Archivos de configuración
+
+Se buscan en $SCRIPT_DIR y en pwd, lo cual da flexibilidad.
+
+Si falta el archivo de exclusiones, da advertencia (no aborta, correcto).
+
+Si falta la lista de sincronización, aborta salvo que se use --item.
+
+Verificación de pCloud
+
+Bastante robusta:
+
+Verifica directorio vacío.
+
+Usa findmnt, mountpoint o mount.
+
+Verifica existencia de subdirectorio de backup.
+
+Incluso testea escritura con touch (salvo en readonly o dry-run). ✅
+
+Construcción de opciones rsync
+
+Se arma en array → evita problemas de espacios.
+
+Añade --update salvo que se use --overwrite.
+
+Maneja exclusiones desde archivo .ini saltando comentarios.
+
+Tiene validación extra (validate_rsync_opts) contra valores raros → buena medida de seguridad.
+
+Sincronización
+
+Revisa que el origen exista antes de lanzar rsync.
+
+Crea directorios destino si no existen (con soporte para dry-run).
+
+Maneja errores de rsync y los registra en log.
+
+Lógica limpia y clara.
+
+Enlaces simbólicos
+
+Se registran en archivo auxiliar (.sync_bidireccional_symlinks.meta).
+
+Se sincronizan al subir y se recrean al bajar.
+
+Soporta rutas relativas y evita romper enlaces inválidos.
+
+Bastante robusto, aunque dependiente de que readlink devuelva valores consistentes.
+
+Permisos ejecutables
+
+Solo aplica en --bajar.
+
+Usa find con patrones y chmod recursivo.
+
+Maneja rutas inexistentes mostrando advertencia.
+
+Logs
+
+Registra todo en ~/sync_bidireccional.log.
+
+Incluye fecha, modo, opciones, exclusiones, lista usada, etc.
+
+Correcto para depuración posterior.
