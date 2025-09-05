@@ -106,8 +106,29 @@ log_debug() {
     [ $DEBUG -eq 1 ] && echo -e "${BLUE}[DEBUG]${NC} $1" && registrar_log "[DEBUG] $1"
 }
 
-registrar_log() { 
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"; 
+# Función de logging optimizada con rotación automática
+registrar_log() {
+    local message="$(date '+%Y-%m-%d %H:%M:%S') - $1"
+    echo "$message" >> "$LOG_FILE"
+    
+    # Rotación de logs si superan 10MB (solo en modo ejecución real)
+    if [ $DRY_RUN -eq 0 ] && [ -f "$LOG_FILE" ]; then
+        local log_size
+        if [ "$(uname)" = "Darwin" ]; then
+            # macOS
+            log_size=$(stat -f%z "$LOG_FILE" 2>/dev/null || echo 0)
+        else
+            # Linux
+            log_size=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
+        fi
+        
+        if [ $log_size -gt 10000000 ]; then  # 10MB
+            mv "$LOG_FILE" "${LOG_FILE}.old"
+            touch "$LOG_FILE"
+            chmod 644 "$LOG_FILE" 2>/dev/null
+            log_info "Log rotado automáticamente (tamaño: $((log_size/1024/1024))MB)"
+        fi
+    fi
 }
 
 # =========================
