@@ -107,11 +107,23 @@ find_config_files() {
         fi
     fi
     
+    # Validar que el archivo de lista existe
+    if [ -n "$LISTA_SINCRONIZACION" ] && [ ! -f "$LISTA_SINCRONIZACION" ]; then
+        echo "ERROR: El archivo de lista no existe: $LISTA_SINCRONIZACION"
+        exit 1
+    fi
+    
     # Buscar archivo de exclusiones (igual para todos los hosts)
     if [ -f "${SCRIPT_DIR}/sync_bidireccional_exclusiones.ini" ]; then
         EXCLUSIONES="${SCRIPT_DIR}/sync_bidireccional_exclusiones.ini"
     elif [ -f "./sync_bidireccional_exclusiones.ini" ]; then
         EXCLUSIONES="./sync_bidireccional_exclusiones.ini"
+    fi
+    
+    # Validar que el archivo de exclusiones existe si se especificó
+    if [ -n "$EXCLUSIONES" ] && [ ! -f "$EXCLUSIONES" ]; then
+        echo "ERROR: El archivo de exclusiones no existe: $EXCLUSIONES"
+        exit 1
     fi
 }
 
@@ -166,7 +178,7 @@ verificar_pcloud_montado() {
     # Verificar si el punto de montaje de pCloud existe
     if [ ! -d "$PCLOUD_MOUNT_POINT" ]; then
         echo "ERROR: El punto de montaje de pCloud no existe: $PCLOUD_MOUNT_POINT"
-        echo "Asegúrate de que pCloud Drive esté instalado y ejecutándose."
+        echo "Asegúrate de que pCloud Drive esté instalado и ejecutándose."
         exit 1
     fi
     
@@ -194,6 +206,12 @@ verificar_pcloud_montado() {
             echo "ERROR: pCloud no aparece en la lista de sistemas montados"
             exit 1
         fi
+    fi
+    
+    # Verificación adicional con df
+    if ! df -P "$PCLOUD_MOUNT_POINT" | grep -q "pcloud"; then
+        echo "ERROR: pCloud no está montado correctamente en $PCLOUD_MOUNT_POINT"
+        exit 1
     fi
     
     # Verificar si el directorio específico de pCloud existe
@@ -468,6 +486,7 @@ generar_archivo_enlaces() {
         else
             echo "✗ Error sincronizando archivo de enlaces"
             registrar_log "Error sincronizando archivo de enlaces: ${PCLOUD_DIR}/${SYMLINKS_FILE}"
+            return 1
         fi
     else
         echo "No se encontraron enlaces simbólicos para registrar"
@@ -573,6 +592,12 @@ resolver_item_relativo() {
     else
         REL_ITEM="$item"
     fi
+    
+    # Validación de seguridad: evitar path traversal
+    if [[ "$REL_ITEM" == *".."* ]]; then
+        echo "ERROR: El elemento no puede contener '..' por razones de seguridad"
+        exit 1
+    fi
 }
 
 # Función para sincronizar un elemento
@@ -636,6 +661,7 @@ sincronizar_elemento() {
     else
         local rc=$?
         echo "✗ Error en sincronización: $elemento (código: $rc)"
+        echo "Salida de error: $salida"
         registrar_log "Error en sincronización: $elemento (código: $rc) - salida: $salida"
         return $rc
     fi
@@ -670,9 +696,9 @@ sincronizar() {
     # Manejo de enlaces simbólicos
     if [ "$MODO" = "subir" ]; then
         # Generar y subir archivo de enlaces
-        tmp_links=$(mktemp)
+        tmp_links=$(mktemp "${TMPDIR:-/tmp}/sync_links.XXXXXXXXXX")
         TEMP_FILES+=("$tmp_links")
-        generar_archivo_enlaces "$tmp_links"
+        generar_archivo_enlaces "$tmp_links" || exit_code=1
     else
         # Recrear enlaces desde archivo
         recrear_enlaces_desde_archivo
@@ -756,7 +782,13 @@ while [[ $# -gt 0 ]]; do
         --dry-run) DRY_RUN=1; shift;;
         --item)
             [ $# -lt 2 ] && { echo "ERROR: La opción --item requiere un argumento"; exit 1; }
-            ITEM_ESPECIFICO="$2"; shift 2;;
+            ITEM_ESPECIFICO="$2"; 
+            # Validación de seguridad para --item
+            if [[ "$ITEM_ESPECIFICO" == *".."* ]]; then
+                echo "ERROR: El elemento no puede contener '..' por razones de seguridad"
+                exit 1
+            fi
+            shift 2;;
         --yes) YES=1; shift;;
         --backup-dir) BACKUP_DIR_MODE="readonly"; shift;;
         --overwrite) OVERWRITE=1; shift;;
@@ -816,3 +848,6 @@ fi
 
 echo "Log guardado en: $LOG_FILE"
 echo "=========================================="
+
+# Asegurar el código de salida correcto
+exit $resultado
