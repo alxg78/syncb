@@ -239,7 +239,8 @@ mostrar_ayuda() {
     echo "  --backup-dir       Usa el directorio de backup de solo lectura (pCloud Backup) en lugar de Backup_Comun"
     echo "  --overwrite        Sobrescribe todos los archivos en destino (no usa --update)"
     echo "  --checksum         Fuerza comparación con checksum (más lento)"  
-    echo "  --bwlimit KB/s     Limita la velocidad de transferencia (ej: 1000 para 1MB/s)"    
+    echo "  --bwlimit KB/s     Limita la velocidad de transferencia (ej: 1000 para 1MB/s)"
+    echo "  --timeout MINUTOS    Límite de tiempo por operación (default: 30)"
     echo "  --help             Muestra esta ayuda"
     echo ""
     echo "Archivos de configuración:"
@@ -266,6 +267,7 @@ mostrar_ayuda() {
     echo "  sync_bidireccional.sh --bajar --backup-dir --item documentos/ --yes"
     echo "  sync_bidireccional.sh --subir --overwrite  # Sobrescribe todos los archivos"
     echo "  sync_bidireccional.sh --subir --bwlimit 1000  # Sincronizar subiendo con límite de 1MB/s" 
+    echo "  sync_bidireccional.sh --bajar --item Documentos/ --timeout 10  # Timeout corto de 10 minutos para una operación rápida"
 }
 
 # Función para verificar si pCloud está montado
@@ -913,17 +915,28 @@ sincronizar_elemento() {
 	# Preparar el comando rsync (array para seguridad con espacios)
 	local RSYNC_CMD=(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino")
 
-	# Ejecutar rsync y guardar salida en temp_output, sin duplicar
-	if command -v timeout >/dev/null 2>&1; then
+	# Ejecutar rsync y guardar salida en temp_output
+	local timeout_minutes=${TIMEOUT_MINUTES:-30}  # Valor por defecto: 30 minutos
+
+	if command -v timeout >/dev/null 2>&1 && [ $DRY_RUN -eq 0 ]; then
+		# Usar timeout solo en modo ejecución real (no en dry-run)
 		if command -v stdbuf >/dev/null 2>&1; then
 		    # stdbuf evita buffering, tee muestra en pantalla y guarda en archivo
-		    timeout 30m stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
+		    timeout ${timeout_minutes}m stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
 		    rc=${PIPESTATUS[0]}
 		else
-		    timeout 30m "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
+		    timeout ${timeout_minutes}m "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
 		    rc=${PIPESTATUS[0]}
 		fi
+		
+		# Manejar específicamente el código de salida del timeout
+		if [ $rc -eq 124 ]; then
+		    log_error "TIMEOUT: La sincronización de '$elemento' excedió el límite de ${timeout_minutes} minutos"
+		    ERRORES_SINCRONIZACION=$((ERRORES_SINCRONIZACION + 1))
+		    return 1
+		fi
 	else
+		# Sin timeout (dry-run o comando timeout no disponible)
 		if command -v stdbuf >/dev/null 2>&1; then
 		    stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
 		    rc=${PIPESTATUS[0]}
@@ -932,7 +945,7 @@ sincronizar_elemento() {
 		    rc=${PIPESTATUS[0]}
 		fi
 	fi
-
+	
     # Contar archivos creados y actualizados usando --itemize-changes
     CREADOS=$(grep '^>f' "$temp_output" | wc -l)
     ACTUALIZADOS=$(grep '^>f.st' "$temp_output" | wc -l)
@@ -1140,6 +1153,9 @@ while [[ $# -gt 0 ]]; do
         --bwlimit)
             [ -z "$2" ] && { log_error "--bwlimit requiere un valor (KB/s)"; exit 1; }
             BW_LIMIT="$2"; shift 2;;
+        --timeout)
+            [ -z "$2" ] && { log_error "--timeout requiere minutos"; exit 1; }
+            TIMEOUT_MINUTES="$2"; shift 2;;
         -h|--help)
             mostrar_ayuda; exit 0;;
         *)
