@@ -58,7 +58,8 @@ declare -i ARCHIVOS_TRANSFERIDOS=0
 declare -i ENLACES_CREADOS=0
 declare -i ENLACES_EXISTENTES=0
 declare -i ENLACES_ERRORES=0
-declare -i ENLACES_DETECTADOS=0 
+declare -i ENLACES_DETECTADOS=0
+declare -i ARCHIVOS_BORRADOS=0
 
 # Temp files to cleanup
 TEMP_FILES=()
@@ -805,6 +806,13 @@ sincronizar_elemento() {
     local count
     count=$(grep -E '^[<>].' "$temp_output" | wc -l)
 
+	# Contar archivos borrados si se usó --delete
+	if [ $DELETE -eq 1 ]; then
+		BORRADOS=$(grep '^\*deleting' "$temp_output" | wc -l)
+		ARCHIVOS_BORRADOS=$((ARCHIVOS_BORRADOS + BORRADOS))
+		log_info "Archivos borrados: $BORRADOS"
+	fi
+
     # Limpiar archivo temporal
     rm -f "$temp_output"
     # Eliminar de la lista de temporales
@@ -1013,6 +1021,7 @@ echo "=========================================="
 echo "Sincronización finalizada: $(date)"
 echo "Elementos sincronizados: $ARCHIVOS_SINCRONIZADOS"
 echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
+[ $DELETE -eq 1 ] && echo "Archivos borrados: $ARCHIVOS_BORRADOS"
 echo "Modo dry-run: $([ $DRY_RUN -eq 1 ] && echo 'Sí' || echo 'No')"
 echo "Enlaces detectados/guardados: $ENLACES_DETECTADOS"
 echo "Enlaces creados: $ENLACES_CREADOS"
