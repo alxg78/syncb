@@ -1,4 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -uo pipefail
+IFS=$'\n\t'
 
 # Script: sync_bidireccional.sh
 # Descripción: Sincronización bidireccional entre directorio local y pCloud
@@ -6,27 +8,38 @@
 #   Subir: ./sync_bidireccional.sh --subir [--delete] [--dry-run] [--item elemento] [--yes] [--overwrite]
 #   Bajar: ./sync_bidireccional.sh --bajar [--delete] [--dry-run] [--item elemento] [--yes] [--backup-dir] [--overwrite]
 
-# Configuración - EDITAR ESTAS RUTAS SEGÚN TU CASO
-PCLOUD_MOUNT_POINT="${HOME}/pCloudDrive"  # Punto de montaje de pCloud
+# =========================
+# Configuración (ajusta a tu entorno)
+# =========================
+# Punto de montaje de pCloud
+PCLOUD_MOUNT_POINT="${HOME}/pCloudDrive"
 
-LOCAL_DIR="${HOME}"  # Directorio local
-PCLOUD_BACKUP_COMUN="${PCLOUD_MOUNT_POINT}/Backups/Backup_Comun"  # Directorio de pCloud (modo normal)
-PCLOUD_BACKUP_READONLY="${PCLOUD_MOUNT_POINT}/pCloud Backup/feynman.sobremesa.dnf"  # Directorio de pCloud (solo lectura)
+# Directorio local
+LOCAL_DIR="${HOME}"
+
+# Directorio de pCloud (modo normal)
+PCLOUD_BACKUP_COMUN="${PCLOUD_MOUNT_POINT}/Backups/Backup_Comun"
+
+# Directorio de pCloud (modo normal)
+PCLOUD_BACKUP_READONLY="${PCLOUD_MOUNT_POINT}/pCloud Backup/feynman.sobremesa.dnf"
 
 # Determinar el directorio donde se encuentra este script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Obtener el hostname de la máquina
-HOSTNAME=$(hostname)
+# Usar FQDN en lugar del nombre corto (cambio mínimo solicitado)
+HOSTNAME=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "")
 
-# Hostname de rtva
+# Hostname de la maquina virtual de RTVA
 HOSTNAME_RTVA="feynman.rtva.dnf"
 
 # Archivos de configuración (buscar en el directorio del script primero, luego en el directorio actual)
 LISTA_SINCRONIZACION=""
 EXCLUSIONES=""
 LOG_FILE="$HOME/sync_bidireccional.log"
-SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"  # Archivo para almacenar información de enlaces simbólicos
+
+# Enlaces simbólicos en la subida, origen
+SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"
 
 # Variables de control
 MODO=""
@@ -34,17 +47,24 @@ DRY_RUN=0
 DELETE=0
 ITEM_ESPECIFICO=""
 YES=0
-OVERWRITE=0  # Por defecto: no sobrescribir (usar --update)
-BACKUP_DIR_MODE="comun"  # Por defecto: Backup_Comun
+OVERWRITE=0
+BACKUP_DIR_MODE="comun"
+USE_CHECKSUM=0
 
-# Definir códigos de color
-# uso: echo -e "${RED}cuerpo del texto.${NC}"
+# Temp files to cleanup
+TEMP_FILES=()
+
+# Colores
+# Ejemplo de uso: echo -e "${RED}cuerpo del texto.${NC}"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color (reset)
 
+# =========================
+# Utilidades
+# =========================
 # Función para determinar el directorio de pCloud según el modo
 get_pcloud_dir() {
     if [ "$BACKUP_DIR_MODE" = "readonly" ]; then
@@ -78,7 +98,6 @@ find_config_files() {
         fi
     else
         # Para otros hostnames, usar el archivo por defecto
-        
         # Primero buscar en el directorio del script
         if [ -f "${SCRIPT_DIR}/${lista_por_defecto}" ]; then
             LISTA_SINCRONIZACION="${SCRIPT_DIR}/${lista_por_defecto}"
@@ -96,9 +115,6 @@ find_config_files() {
     fi
 }
 
-# Llamar a la función para buscar archivos de configuración
-find_config_files
-
 # Función para mostrar ayuda
 mostrar_ayuda() {
     echo "Uso: $0 [OPCIONES]"
@@ -114,6 +130,7 @@ mostrar_ayuda() {
     echo "  --yes             No pregunta confirmación, ejecuta directamente"
     echo "  --backup-dir      Usa el directorio de backup de solo lectura (pCloud Backup) en lugar de Backup_Comun"
     echo "  --overwrite       Sobrescribe todos los archivos en destino (no usa --update)"
+    echo "  --checksum        Fuerza comparación con checksum (más lento)"  
     echo "  --help            Muestra esta ayuda"
     echo ""
     echo "Archivos de configuración:"
@@ -143,8 +160,9 @@ mostrar_ayuda() {
 
 # Función para verificar si pCloud está montado
 verificar_pcloud_montado() {
-    local PCLOUD_DIR=$(get_pcloud_dir)
-    
+    local PCLOUD_DIR
+    PCLOUD_DIR=$(get_pcloud_dir)
+
     # Verificar si el punto de montaje de pCloud existe
     if [ ! -d "$PCLOUD_MOUNT_POINT" ]; then
         echo "ERROR: El punto de montaje de pCloud no existe: $PCLOUD_MOUNT_POINT"
@@ -159,12 +177,23 @@ verificar_pcloud_montado() {
         echo "Esto sugiere que pCloud Drive no está montado correctamente."
         exit 1
     fi
-    
+
     # 2. Verificar usando el comando mount
-    if ! mount | grep -q "pCloud\|pcloud"; then
-        echo "ERROR: pCloud no aparece en la lista de sistemas de archivos montados"
-        echo "Asegúrate de que pCloud Drive esté ejecutándose y montado."
-        exit 1
+    if command -v findmnt >/dev/null 2>&1; then
+        if ! findmnt -rno TARGET "$PCLOUD_MOUNT_POINT" >/dev/null 2>&1; then
+            echo "ERROR: pCloud no aparece montado en $PCLOUD_MOUNT_POINT"
+            exit 1
+        fi
+    elif command -v mountpoint >/dev/null 2>&1; then
+        if ! mountpoint -q "$PCLOUD_MOUNT_POINT"; then
+            echo "ERROR: pCloud no aparece montado en $PCLOUD_MOUNT_POINT"
+            exit 1
+        fi
+    else
+        if ! mount | grep -qi "pcloud"; then
+            echo "ERROR: pCloud no aparece en la lista de sistemas montados"
+            exit 1
+        fi
     fi
     
     # Verificar si el directorio específico de pCloud existe
@@ -180,24 +209,22 @@ verificar_pcloud_montado() {
     # Verificación adicional: intentar escribir en el directorio (solo si no es dry-run y no es modo backup-dir)
     if [ $DRY_RUN -eq 0 ] && [ "$BACKUP_DIR_MODE" = "comun" ]; then
         local test_file="${PCLOUD_DIR}/.test_write_$$"
-        if touch "$test_file" 2>/dev/null; then
-            rm -f "$test_file"
-        else
-            echo "ERROR: No se puede escribir en el directorio de pCloud: $PCLOUD_DIR"
-            echo "Asegúrate de que pCloud Drive esté funcionando correctamente y tengas permisos de escritura."
+        if ! touch "$test_file" 2>/dev/null; then
+            echo "ERROR: No se puede escribir en: $PCLOUD_DIR"
             exit 1
         fi
+        rm -f "$test_file"
     fi
-    
+
     echo "✓ Verificación de pCloud: OK - El directorio está montado y accesible"
 }
 
 # Función para mostrar el banner informativo
 mostrar_banner() {
-    local PCLOUD_DIR=$(get_pcloud_dir)
-    
+    local PCLOUD_DIR
+    PCLOUD_DIR=$(get_pcloud_dir)
+
     echo "=========================================="
-    
     if [ "$MODO" = "subir" ]; then
         echo "MODO: SUBIR (Local → pCloud)"
         echo "ORIGEN: ${LOCAL_DIR}"
@@ -207,7 +234,7 @@ mostrar_banner() {
         echo "ORIGEN: ${PCLOUD_DIR}"
         echo "DESTINO: ${LOCAL_DIR}"
     fi
-    
+
     if [ "$BACKUP_DIR_MODE" = "readonly" ]; then
         echo "DIRECTORIO: Backup de solo lectura (pCloud Backup)"
     else
@@ -227,17 +254,17 @@ mostrar_banner() {
     fi
     
     if [ $OVERWRITE -eq 1 ]; then
-        echo -e "SOBRESCRITURA: ${GREEN}ACTIVADA${NC} (se sobrescribirán todos los archivos)"
+        echo -e "SOBRESCRITURA: ${GREEN}ACTIVADA${NC}"
     else
-        echo "MODO: SEGURO (--update activado, se preservan archivos más recientes en destino)"
+        echo "MODO: SEGURO (--update activado)"
     fi
-    
+
     if [ -n "$ITEM_ESPECIFICO" ]; then
         echo "ELEMENTO ESPECÍFICO: $ITEM_ESPECIFICO"
     else
         echo "LISTA: ${LISTA_SINCRONIZACION:-No encontrada}"
     fi
-    
+
     echo "EXCLUSIONES: ${EXCLUSIONES:-No encontradas}"
     echo "=========================================="
 }
@@ -250,42 +277,45 @@ confirmar_ejecucion() {
     fi
     
     echo ""
-    read -p "¿Desea continuar con la sincronización? [s/N]: " respuesta
-    if [ "$respuesta" != "s" ] && [ "$respuesta" != "S" ]; then
-        echo "Operación cancelada por el usuario."
-        exit 0
+    if [ -t 0 ]; then
+        read -r -p "¿Desea continuar con la sincronización? [s/N]: " respuesta
+        if [[ ! "$respuesta" =~ ^[sS]$ ]]; then
+            echo "Operación cancelada por el usuario."
+            exit 0
+        fi
+        echo ""
+    else
+        echo "ERROR: No hay entrada interactiva disponible (usa --yes)"
+        exit 1
     fi
     echo ""
 }
 
 # Función para verificar y crear archivo de log
 inicializar_log() {
-    if [ ! -f "$LOG_FILE" ]; then
-        touch "$LOG_FILE"
-        chmod 644 "$LOG_FILE"
-    fi
-    echo "==========================================" >> "$LOG_FILE"
-    echo "Sincronización iniciada: $(date)" >> "$LOG_FILE"
-    echo "Modo: $MODO" >> "$LOG_FILE"
-    echo "Delete: $DELETE" >> "$LOG_FILE"
-    echo "Dry-run: $DRY_RUN" >> "$LOG_FILE"
-    echo "Backup-dir: $BACKUP_DIR_MODE" >> "$LOG_FILE"
-    echo "Overwrite: $OVERWRITE" >> "$LOG_FILE"
-    if [ -n "$ITEM_ESPECIFICO" ]; then
-        echo "Item específico: $ITEM_ESPECIFICO" >> "$LOG_FILE"
-    fi
-    echo "Lista sincronización: ${LISTA_SINCRONIZACION:-No encontrada}" >> "$LOG_FILE"
-    echo "Exclusiones: ${EXCLUSIONES:-No encontradas}" >> "$LOG_FILE"
+    touch "$LOG_FILE"
+    chmod 644 "$LOG_FILE" 2>/dev/null
+    {
+        echo "=========================================="
+        echo "Sincronización iniciada: $(date)"
+        echo "Modo: $MODO"
+        echo "Delete: $DELETE"
+        echo "Dry-run: $DRY_RUN"
+        echo "Backup-dir: $BACKUP_DIR_MODE"
+        echo "Overwrite: $OVERWRITE"
+        echo "Checksum: $USE_CHECKSUM"
+        [ -n "$ITEM_ESPECIFICO" ] && echo "Item específico: $ITEM_ESPECIFICO"
+        echo "Lista sincronización: ${LISTA_SINCRONIZACION:-No encontrada}"
+        echo "Exclusiones: ${EXCLUSIONES:-No encontradas}"
+    } >> "$LOG_FILE"
 }
 
 # Función para registrar en log
-registrar_log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
-}
+registrar_log() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"; }
 
 # Función para verificar dependencias
 verificar_dependencias() {
-    if ! command -v rsync &> /dev/null; then
+    if ! command -v rsync &>/dev/null; then
         echo "ERROR: rsync no está instalado. Instálalo con:"
         echo "sudo apt install rsync  # Debian/Ubuntu"
         echo "sudo dnf install rsync  # RedHat/CentOS"
@@ -310,157 +340,155 @@ verificar_archivos_configuracion() {
     fi
 }
 
-# Función para construir opciones de rsync
+# Construye opciones de rsync (en array para evitar problemas de espacios)
+declare -a RSYNC_OPTS
 construir_opciones_rsync() {
-    local opciones="--recursive --verbose --times --checksum --progress --whole-file --no-links"
-    
-    # Añadir --update si no estamos en modo sobrescritura
-    if [ $OVERWRITE -eq 0 ]; then
-        opciones="$opciones --update"
+    RSYNC_OPTS=(--recursive --verbose --times --progress --whole-file --no-links)
+    [ $OVERWRITE -eq 0 ] && RSYNC_OPTS+=(--update)
+    [ $DRY_RUN -eq 1 ] && RSYNC_OPTS+=(--dry-run)
+    [ $DELETE -eq 1 ] && RSYNC_OPTS+=(--delete-delay)
+
+    if [ $USE_CHECKSUM -eq 1 ]; then
+        RSYNC_OPTS+=(--checksum)
     fi
-    
-    if [ $DRY_RUN -eq 1 ]; then
-        opciones="$opciones --dry-run"
-    fi
-    
-    if [ $DELETE -eq 1 ]; then
-        opciones="$opciones --delete-delay"
-    fi
-    
-    # Añadir exclusiones si el archivo existe
+
     if [ -n "$EXCLUSIONES" ] && [ -f "$EXCLUSIONES" ]; then
-        while IFS= read -r linea; do
-            # Ignorar líneas vacías y comentarios
-            if [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]]; then
-                opciones="$opciones --exclude='$linea'"
-            fi
+        while IFS= read -r linea || [ -n "$linea" ]; do
+            [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
+            RSYNC_OPTS+=(--exclude="$linea")
         done < "$EXCLUSIONES"
     fi
-    
-    echo "$opciones"
 }
 
-# Función para generar archivo de enlaces simbólicos (VERSIÓN COMPLETAMENTE NUEVA)
+# =========================
+# Validación y utilidades rsync
+# =========================
+validate_rsync_opts() {
+    for opt in "${RSYNC_OPTS[@]:-}"; do
+        # Si por alguna razón aparece la cadena 'rsync' en una opción, abortar
+        if printf '%s' "$opt" | grep -qi 'rsync'; then
+            echo "ERROR: RSYNC_OPTS contiene un elemento sospechoso con 'rsync': $opt" >&2
+            echo "Contenido actual de RSYNC_OPTS:" >&2
+            declare -p RSYNC_OPTS >&2
+            return 1
+        fi
+    done
+    return 0
+}
+
+print_rsync_command() {
+    local origen="$1" destino="$2"
+    printf "Comando: "
+    printf "%q " rsync
+    for el in "${RSYNC_OPTS[@]}"; do
+        printf "%q " "$el"
+    done
+    printf "%q %q\n" "$origen" "$destino"
+}
+
+# =========================
+# ENLACES SIMBÓLICOS
+# =========================
+# Función para generar archivo de enlaces simbólicos
 generar_archivo_enlaces() {
     local archivo_enlaces="$1"
-    local PCLOUD_DIR=$(get_pcloud_dir)
-    
-    echo "Generando archivo de enlaces simbólicos (nuevo método)..."
-    registrar_log "Generando archivo de enlaces simbólicos (nuevo método): $archivo_enlaces"
-    
-    # Limpiar archivo existente
-    > "$archivo_enlaces"
-    local enlaces_registrados=0
-    
-    # Función para procesar un directorio específico
-    procesar_directorio() {
-        local directorio="$1"
-        
-        echo "Procesando directorio: $directorio"
-        
-        # Buscar todos los enlaces simbólicos en el directorio
-        while IFS= read -r -d '' enlace; do
-            # Verificar que es un enlace simbólico
-            if [ ! -L "$enlace" ]; then
-                continue
-            fi
-            
-            # Obtener información del enlace
-            local nombre_enlace=$(basename "$enlace")
-            local ruta_relativa=$(realpath --relative-to="${LOCAL_DIR}" "$enlace")
-            local destino=$(readlink -f "$enlace")
-            
-            # Si no se puede obtener información válida, saltar
-            if [ -z "$ruta_relativa" ] || [ -z "$destino" ]; then
-                echo "  Saltando enlace inválido: $nombre_enlace"
-                continue
-            fi
-            
-            # Verificar si el destino existe
-            if [ ! -e "$destino" ]; then
-                echo "  Saltando enlace roto: $nombre_enlace -> $destino"
-                continue
-            fi
-            
-            # Registrar el enlace en el archivo
-            echo -e "${ruta_relativa}\t${destino}" >> "$archivo_enlaces"
-            echo "  Registrado: $ruta_relativa -> $destino"
-            registrar_log "Registrado enlace: $ruta_relativa -> $destino"
-            
-            enlaces_registrados=$((enlaces_registrados + 1))
-        done < <(find "$directorio" -type l -print0 2>/dev/null)
+    local PCLOUD_DIR
+    PCLOUD_DIR=$(get_pcloud_dir)
+
+    echo "Generando archivo de enlaces simbólicos..."
+    registrar_log "Generando archivo de enlaces simbólicos: $archivo_enlaces"
+    : > "$archivo_enlaces"
+
+    registrar_enlace() {
+        local enlace="$1"
+        # Solo enlaces simbólicos
+        [ -L "$enlace" ] || return
+
+        # Columna 1: ruta del ENLACE relativa a $HOME sin usar realpath (no romper enlaces rotos/relativos)
+        local ruta_relativa="$enlace"
+        if [[ "$ruta_relativa" == "$LOCAL_DIR/"* ]]; then
+            ruta_relativa="${ruta_relativa#${LOCAL_DIR}/}"
+        else
+            # Fallback si no cuelga de $HOME
+            ruta_relativa="${ruta_relativa#/}"
+        fi
+
+        # Columna 2: destino tal cual fue creado el enlace (puede ser relativo)
+        local destino
+        destino="$(readlink "$enlace" 2>/dev/null || true)"
+
+        # Validaciones: no escribir líneas incompletas
+        if [ -z "$ruta_relativa" ] || [ -z "$destino" ]; then
+            echo "Advertencia: enlace no válido u origen/destino vacío: $enlace"
+            registrar_log "Advertencia: enlace no válido u origen/destino vacío: $enlace"
+            return
+        fi
+
+        printf "%s\t%s\n" "$ruta_relativa" "$destino" >> "$archivo_enlaces"
+        echo "Registrado enlace: $ruta_relativa -> $destino"
+        registrar_log "Registrado enlace: $ruta_relativa -> $destino"
     }
-    
-    # Procesar elementos según si hay item específico o lista
+
+    buscar_enlaces_en_directorio() {
+        local dir="$1"
+        [ -d "$dir" ] || return
+        # -print0 para máxima robustez por si hay espacios/nuevas líneas raras en nombres
+        find "$dir" -type l -print0 2>/dev/null | while IFS= read -r -d '' enlace; do
+            registrar_enlace "$enlace"
+        done
+    }
+
     if [ -n "$ITEM_ESPECIFICO" ]; then
         local ruta_completa="${LOCAL_DIR}/${ITEM_ESPECIFICO}"
-        
         if [ -L "$ruta_completa" ]; then
-            # Es un enlace simbólico directamente
-            procesar_directorio "$(dirname "$ruta_completa")"
+            registrar_enlace "$ruta_completa"
         elif [ -d "$ruta_completa" ]; then
-            # Es un directorio, buscar enlaces dentro de él
-            procesar_directorio "$ruta_completa"
-        else
-            echo "El elemento especificado no es un directorio ni un enlace: $ITEM_ESPECIFICO"
+            buscar_enlaces_en_directorio "$ruta_completa"
         fi
     else
-        # Procesar todos los elementos de la lista
-        while IFS= read -r elemento; do
-            if [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]]; then
-                local ruta_completa="${LOCAL_DIR}/${elemento}"
-                
-                if [ -L "$ruta_completa" ]; then
-                    procesar_directorio "$(dirname "$ruta_completa")"
-                elif [ -d "$ruta_completa" ]; then
-                    procesar_directorio "$ruta_completa"
-                else
-                    echo "Elemento en lista no es directorio ni enlace: $elemento"
-                fi
+        while IFS= read -r elemento || [ -n "$elemento" ]; do
+            [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]] || continue
+            local ruta_completa="${LOCAL_DIR}/${elemento}"
+            if [ -L "$ruta_completa" ]; then
+                registrar_enlace "$ruta_completa"
+            elif [ -d "$ruta_completa" ]; then
+                buscar_enlaces_en_directorio "$ruta_completa"
             fi
         done < "$LISTA_SINCRONIZACION"
     fi
-    
-    # Sincronizar el archivo de enlaces
-    if [ $enlaces_registrados -gt 0 ]; then
-        echo "Sincronizando archivo de enlaces ($enlaces_registrados enlaces encontrados)..."
-        local opciones=$(construir_opciones_rsync)
-        local comando="rsync $opciones '$archivo_enlaces' '${PCLOUD_DIR}/${SYMLINKS_FILE}'"
-        
-        if [ $DRY_RUN -eq 1 ]; then
-            echo "SIMULACIÓN: $comando"
-            registrar_log "SIMULACIÓN: $comando"
+
+    if [ -s "$archivo_enlaces" ]; then
+        echo "Sincronizando archivo de enlaces..."
+        construir_opciones_rsync
+        validate_rsync_opts || { echo "Abortando: RSYNC_OPTS inválido"; return 1; }
+        print_rsync_command "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"
+        if rsync "${RSYNC_OPTS[@]}" "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"; then
+            echo "✓ Archivo de enlaces sincronizado"
+            registrar_log "Archivo de enlaces sincronizado: ${PCLOUD_DIR}/${SYMLINKS_FILE}"
         else
-            eval $comando
-            if [ $? -eq 0 ]; then
-                echo "✓ Archivo de enlaces sincronizado"
-                registrar_log "Archivo de enlaces sincronizado: ${PCLOUD_DIR}/${SYMLINKS_FILE}"
-            else
-                echo "✗ Error sincronizando archivo de enlaces"
-                registrar_log "Error sincronizando archivo de enlaces: ${PCLOUD_DIR}/${SYMLINKS_FILE}"
-            fi
+            echo "✗ Error sincronizando archivo de enlaces"
+            registrar_log "Error sincronizando archivo de enlaces: ${PCLOUD_DIR}/${SYMLINKS_FILE}"
         fi
     else
-        echo "No se encontraron enlaces simbólicos válidos para registrar"
-        registrar_log "No se encontraron enlaces simbólicos válidos para registrar"
+        echo "No se encontraron enlaces simbólicos para registrar"
+        registrar_log "No se encontraron enlaces simbólicos para registrar"
     fi
-    
-    # Limpiar archivo temporal
+
     rm -f "$archivo_enlaces"
 }
 
-# Función para recrear enlaces simbólicos (VERSIÓN COMPLETAMENTE NUEVA)
+# Función para recrear enlaces simbólicos 
 recrear_enlaces_desde_archivo() {
-    local PCLOUD_DIR=$(get_pcloud_dir)
+    local PCLOUD_DIR
+    PCLOUD_DIR=$(get_pcloud_dir)
     local archivo_enlaces_origen="${PCLOUD_DIR}/${SYMLINKS_FILE}"
     local archivo_enlaces_local="${LOCAL_DIR}/${SYMLINKS_FILE}"
-    
+
     echo "Buscando archivo de enlaces..."
     registrar_log "Buscando archivo de enlaces: $archivo_enlaces_origen"
-    
-    # Copiar el archivo de enlaces localmente si existe en pCloud
+
     if [ -f "$archivo_enlaces_origen" ]; then
-        cp "$archivo_enlaces_origen" "$archivo_enlaces_local"
+        cp -f "$archivo_enlaces_origen" "$archivo_enlaces_local"
         echo "Archivo de enlaces copiado localmente"
         registrar_log "Archivo de enlaces copiado localmente: $archivo_enlaces_local"
     elif [ -f "$archivo_enlaces_local" ]; then
@@ -471,37 +499,38 @@ recrear_enlaces_desde_archivo() {
         registrar_log "No se encontró archivo de enlaces, omitiendo recreación"
         return
     fi
-    
-    # Procesar archivo de enlaces
+
     echo "Recreando enlaces simbólicos..."
     local contador=0
     local errores=0
-    
-    while IFS=$'\t' read -r ruta_enlace destino; do
-        # Ignorar líneas vacías o mal formadas
+
+    # Leer con separador de TAB
+    while IFS=$'\t' read -r ruta_enlace destino || [ -n "$ruta_enlace" ] || [ -n "$destino" ]; do
+        # Saltar líneas vacías o mal formateadas
         if [ -z "$ruta_enlace" ] || [ -z "$destino" ]; then
+            echo "Línea inválida en meta (se omite)"
             continue
         fi
-        
+
         local ruta_completa="${LOCAL_DIR}/${ruta_enlace}"
-        local dir_padre=$(dirname "$ruta_completa")
-        
-        # Crear directorio padre si no existe
+        local dir_padre
+        dir_padre=$(dirname "$ruta_completa")
+
         if [ ! -d "$dir_padre" ] && [ $DRY_RUN -eq 0 ]; then
             mkdir -p "$dir_padre"
         fi
-        
-        # Verificar si el enlace ya existe y es correcto
+
+        # Si ya existe y apunta a lo mismo (comparar con readlink SIN -f para respetar destino relativo)
         if [ -L "$ruta_completa" ]; then
-            local destino_actual=$(readlink -f "$ruta_completa" 2>/dev/null)
+            local destino_actual
+            destino_actual=$(readlink "$ruta_completa" 2>/dev/null || true)
             if [ "$destino_actual" = "$destino" ]; then
                 echo "Enlace ya existe y es correcto: $ruta_enlace -> $destino"
                 registrar_log "Enlace ya existe y es correcto: $ruta_enlace -> $destino"
                 continue
             fi
         fi
-        
-        # Crear el enlace (en dry-run o realmente)
+
         if [ $DRY_RUN -eq 1 ]; then
             echo "SIMULACIÓN: ln -sfn '$destino' '$ruta_completa'"
             registrar_log "SIMULACIÓN: ln -sfn '$destino' '$ruta_completa'"
@@ -518,22 +547,40 @@ recrear_enlaces_desde_archivo() {
             fi
         fi
     done < "$archivo_enlaces_local"
-    
+
     echo "Enlaces recreados: $contador, Errores: $errores"
     registrar_log "Enlaces recreados: $contador, Errores: $errores"
-    
-    # Limpiar archivo local
-    if [ $DRY_RUN -eq 0 ]; then
-        rm -f "$archivo_enlaces_local"
+
+    [ $DRY_RUN -eq 0 ] && rm -f "$archivo_enlaces_local"
+}
+
+# =========================
+# SINCRONIZACIÓN
+# =========================
+resolver_item_relativo() {
+    local item="$1"
+    if [ -z "$item" ]; then
+        REL_ITEM=""
+        return
+    fi
+    if [[ "$item" = /* ]]; then
+        if [[ "$item" == "$LOCAL_DIR/"* ]]; then
+            REL_ITEM="${item#${LOCAL_DIR}/}"
+        else
+            echo "ERROR: --item apunta fuera de \$HOME: $item"
+            exit 1
+        fi
+    else
+        REL_ITEM="$item"
     fi
 }
 
 # Función para sincronizar un elemento
 sincronizar_elemento() {
     local elemento="$1"
-    local opciones="$2"
-    local PCLOUD_DIR=$(get_pcloud_dir)
-    
+    local PCLOUD_DIR
+    PCLOUD_DIR=$(get_pcloud_dir)
+
     # Definir origen y destino según el modo
     if [ "$MODO" = "subir" ]; then
         origen="${LOCAL_DIR}/${elemento}"
@@ -554,15 +601,13 @@ sincronizar_elemento() {
     
     # Determinar si es directorio o archivo
     if [ -d "$origen" ]; then
-        origen="${origen}/"
-        # Solo añadir barra al destino si es un directorio
-        if [ ! -e "$destino" ] || [ -d "$destino" ]; then
-            destino="${destino}/"
-        fi
+        origen="${origen%/}/"
+        destino="${destino%/}/"
     fi
-    
+
     # Crear directorio de destino si no existe (solo si no estamos en dry-run)
-    local dir_destino=$(dirname "$destino")
+    local dir_destino
+    dir_destino=$(dirname "$destino")
     if [ ! -d "$dir_destino" ] && [ $DRY_RUN -eq 0 ]; then
         mkdir -p "$dir_destino"
         echo "Directorio creado: $dir_destino"
@@ -571,83 +616,79 @@ sincronizar_elemento() {
         echo "SIMULACIÓN: Se crearía directorio: $dir_destino"
         registrar_log "SIMULACIÓN: Se crearía directorio: $dir_destino"
     fi
-   
-    echo "" 
+
+    echo ""
     echo -e "${BLUE}Sincronizando: $elemento ($direccion)${NC}"
     registrar_log "Sincronizando: $elemento ($direccion)"
-    
-    # Construir y ejecutar comando
-    local comando="rsync $opciones '$origen' '$destino'"
-    echo "Comando: $comando"
-    registrar_log "Comando ejecutado: $comando"
-    
-    eval $comando
-    local resultado=$?
-    
-    if [ $resultado -eq 0 ]; then
+
+    construir_opciones_rsync
+    validate_rsync_opts || { echo "Abortando: RSYNC_OPTS inválido"; registrar_log "Abortando: RSYNC_OPTS inválido"; return 1; }
+
+    # Imprimir comando de forma segura
+    print_rsync_command "$origen" "$destino"
+    registrar_log "Comando ejecutado: rsync ${RSYNC_OPTS[*]} $origen $destino"
+
+    # Ejecutar rsync (array expansion para evitar problemas con espacios)
+    if salida=$(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino" 2>&1); then
         echo "✓ Sincronización completada: $elemento"
         registrar_log "Sincronización completada: $elemento"
+        return 0
     else
-        echo "✗ Error en sincronización: $elemento (código: $resultado)"
-        registrar_log "Error en sincronización: $elemento (código: $resultado)"
+        local rc=$?
+        echo "✗ Error en sincronización: $elemento (código: $rc)"
+        registrar_log "Error en sincronización: $elemento (código: $rc) - salida: $salida"
+        return $rc
     fi
-    
-    return $resultado
 }
 
 # Función principal de sincronización
 sincronizar() {
-    local opciones=$(construir_opciones_rsync)
     local exit_code=0
-    
+
     mostrar_banner
     
     # Verificar si pCloud está montado antes de continuar
     verificar_pcloud_montado
-    
+
     # Preguntar confirmación antes de continuar (excepto en dry-run o si se usa --yes)
-    if [ $DRY_RUN -eq 0 ]; then
-        confirmar_ejecucion
-    fi
-    
+    [ $DRY_RUN -eq 0 ] && confirmar_ejecucion
+
     # Si se especificó un elemento específico
     if [ -n "$ITEM_ESPECIFICO" ]; then
-        echo "Sincronizando elemento específico: $ITEM_ESPECIFICO"
-        sincronizar_elemento "$ITEM_ESPECIFICO" "$opciones"
-        exit_code=$?
+        resolver_item_relativo "$ITEM_ESPECIFICO"
+        echo "Sincronizando elemento específico: $REL_ITEM"
+        sincronizar_elemento "$REL_ITEM" || exit_code=1
     else
-        # Leer y procesar la lista de sincronización
         echo "Procesando lista de sincronización: ${LISTA_SINCRONIZACION}"
-        while IFS= read -r linea; do
-            # Ignorar líneas vacías y comentarios
-            if [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]]; then
-                sincronizar_elemento "$linea" "$opciones"
-                if [ $? -ne 0 ]; then
-                    exit_code=1
-                fi
-                echo "------------------------------------------"
-            fi
+        while IFS= read -r linea || [ -n "$linea" ]; do
+            [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
+            sincronizar_elemento "$linea" || exit_code=1
+            echo "------------------------------------------"
         done < "$LISTA_SINCRONIZACION"
     fi
     
     # Manejo de enlaces simbólicos
     if [ "$MODO" = "subir" ]; then
         # Generar y subir archivo de enlaces
-        local archivo_temporal=$(mktemp)
-        generar_archivo_enlaces "$archivo_temporal"
-    elif [ "$MODO" = "bajar" ]; then
+        tmp_links=$(mktemp)
+        TEMP_FILES+=("$tmp_links")
+        generar_archivo_enlaces "$tmp_links"
+    else
         # Recrear enlaces desde archivo
         recrear_enlaces_desde_archivo
     fi
-    
+
     return $exit_code
 }
 
-# FUNCIÓN CORREGIDA PARA AJUSTAR PERMISOS DE EJECUCIÓN
+# =========================
+# Post: permisos ejecutables al bajar
+# =========================
+# Funcion para ajustar permisos de ejecución de ficheros indicados
 ajustar_permisos_ejecutables() {
     local directorio_base="${LOCAL_DIR}"
     local exit_code=0
-    
+
     echo "Ajustando permisos de ejecución..."
     
     # Procesar cada argumento
@@ -656,8 +697,9 @@ ajustar_permisos_ejecutables() {
         if [[ "$patron" == *"*"* ]]; then
             # Es un patrón con comodín (como *.sh)
             local directorio_patron="${directorio_base}/$(dirname "$patron")"
-            local archivo_patron="$(basename "$patron")"
-            
+            local archivo_patron
+            archivo_patron="$(basename "$patron")"
+
             if [ -d "$directorio_patron" ]; then
                 echo "Aplicando permisos a: $patron (recursivo)"
                 # Usar find para buscar archivos que coincidan con el patrón
@@ -676,7 +718,7 @@ ajustar_permisos_ejecutables() {
                 exit_code=1
                 continue
             fi
-            
+
             if [ -f "$ruta_completa" ]; then
                 # Es un archivo específico
                 echo "Aplicando permisos a: $patron"
@@ -688,11 +730,13 @@ ajustar_permisos_ejecutables() {
             fi
         fi
     done
-    
-    #echo "Ajuste de permisos completado."
+
     return $exit_code
 }
 
+# =========================
+# Args
+# =========================
 # Procesar argumentos
 if [ $# -eq 0 ]; then
     echo "ERROR: Debes especificar al menos --subir o --bajar"
@@ -703,76 +747,38 @@ fi
 while [[ $# -gt 0 ]]; do
     case $1 in
         --subir)
-            if [ -n "$MODO" ]; then
-                echo "ERROR: No puedes usar --subir y --bajar simultáneamente"
-                mostrar_ayuda
-                exit 1
-            fi
-            MODO="subir"
-            shift
-            ;;
+            [ -n "$MODO" ] && { echo "ERROR: No puedes usar --subir y --bajar simultáneamente"; exit 1; }
+            MODO="subir"; shift;;
         --bajar)
-            if [ -n "$MODO" ]; then
-                echo "ERROR: No puedes usar --subir y --bajar simultáneamente"
-                mostrar_ayuda
-                exit 1
-            fi
-            MODO="bajar"
-            shift
-            ;;
-        --delete)
-            DELETE=1
-            shift
-            ;;
-        --dry-run)
-            DRY_RUN=1
-            shift
-            ;;
+            [ -n "$MODO" ] && { echo "ERROR: No puedes usar --subir y --bajar simultáneamente"; exit 1; }
+            MODO="bajar"; shift;;
+        --delete) DELETE=1; shift;;
+        --dry-run) DRY_RUN=1; shift;;
         --item)
-            if [ $# -lt 2 ]; then
-                echo "ERROR: La opción --item requiere un argumento"
-                mostrar_ayuda
-                exit 1
-            fi
-            ITEM_ESPECIFICO="$2"
-            shift 2
-            ;;
-        --yes)
-            YES=1
-            shift
-            ;;
-        --backup-dir)
-            BACKUP_DIR_MODE="readonly"
-            shift
-            ;;
-        --overwrite)
-            OVERWRITE=1
-            shift
-            ;;
-        --help)
-            mostrar_ayuda
-            exit 0
-            ;;
-        *)
-            echo "ERROR: Opción desconocida: $1"
-            mostrar_ayuda
-            exit 1
-            ;;
+            [ $# -lt 2 ] && { echo "ERROR: La opción --item requiere un argumento"; exit 1; }
+            ITEM_ESPECIFICO="$2"; shift 2;;
+        --yes) YES=1; shift;;
+        --backup-dir) BACKUP_DIR_MODE="readonly"; shift;;
+        --overwrite) OVERWRITE=1; shift;;
+        --checksum) USE_CHECKSUM=1; shift;;
+        --help) mostrar_ayuda; exit 0;;
+        *) echo "ERROR: Opción desconocida: $1"; mostrar_ayuda; exit 1;;
     esac
 done
 
 # Validación principal: debe tener exactamente un modo
-if [ -z "$MODO" ]; then
-    echo "ERROR: Debes especificar --subir o --bajar"
-    mostrar_ayuda
-    exit 1
-fi
+[ -z "$MODO" ] && { echo "ERROR: Debes especificar --subir o --bajar"; mostrar_ayuda; exit 1; }
 
-# Ejecutar verificaciones
+# =========================
+# Run
+# =========================
 verificar_dependencias
-find_config_files  # Buscar archivos de configuración
+find_config_files
 verificar_archivos_configuracion
 inicializar_log
+
+# Limpieza de temporales al salir
+trap 'if [ "${#TEMP_FILES[@]}" -gt 0 ]; then rm -f "${TEMP_FILES[@]}" 2>/dev/null || true; fi' EXIT
 
 # Ejecutar sincronización
 sincronizar
@@ -782,9 +788,11 @@ resultado=$?
 if [ "$MODO" = "bajar" ] && [ $DRY_RUN -eq 0 ]; then
     # Aquí defines los patrones que deseas procesar
     ajustar_permisos_ejecutables \
+        "./*.sh" \
         ".local/bin/*.sh" \
         ".local/bin/*.bash" \
         ".local/bin/*.py" \
+        ".local/bin/*.jl" \
         ".local/bin/pcloud" \
         ".config/dotfiles/*.sh"
 elif [ "$MODO" = "bajar" ] && [ $DRY_RUN -eq 1 ]; then
