@@ -501,6 +501,43 @@ mostrar_estadísticas() {
     echo "=========================================="
 }
 
+# Función para verificar espacio disponible en disco
+verificar_espacio_disco() {
+    local needed_mb=${1:-100}  # MB mínimos por defecto: 100MB
+    local available_mb
+    local mount_point
+    
+    # Determinar el punto de montaje a verificar según el modo
+    if [ "$MODO" = "subir" ]; then
+        mount_point="$PCLOUD_MOUNT_POINT"
+    else
+        mount_point="$LOCAL_DIR"
+    fi
+    
+    # Obtener espacio disponible de forma portable
+    if [ "$(uname)" = "Darwin" ]; then
+        # macOS
+        available_mb=$(df -m "$mount_point" | awk 'NR==2 {print $4}')
+    else
+        # Linux
+        available_mb=$(df -m --output=avail "$mount_point" | awk 'NR==2 {print $1}')
+    fi
+    
+    # Validar que se obtuvo un valor numérico
+    if ! [[ "$available_mb" =~ ^[0-9]+$ ]]; then
+        log_warn "No se pudo determinar el espacio disponible en $mount_point"
+        return 0  # Continuar a pesar de la advertencia
+    fi
+    
+    if [ "$available_mb" -lt "$needed_mb" ]; then
+        log_error "Espacio insuficiente en $mount_point. Disponible: ${available_mb}MB, Necesario: ${needed_mb}MB"
+        return 1
+    fi
+    
+    log_info "Espacio en disco verificado. Disponible: ${available_mb}MB en $mount_point"
+    return 0
+}
+
 # =========================
 # Validación y utilidades rsync
 # =========================
@@ -757,21 +794,21 @@ resolver_item_relativo() {
     
     # Validación de seguridad: evitar path traversal
     # Normalizar y validar ruta relativa
-# Si REL_ITEM es absoluta, no tocar; si es relativa, concatenar LOCAL_DIR
-if [[ "$REL_ITEM" = /* ]]; then
-    REL_ITEM_ABS="$REL_ITEM"
-else
-    REL_ITEM_ABS="${LOCAL_DIR}/${REL_ITEM}"
-fi
+	# Si REL_ITEM es absoluta, no tocar; si es relativa, concatenar LOCAL_DIR
+	if [[ "$REL_ITEM" = /* ]]; then
+		REL_ITEM_ABS="$REL_ITEM"
+	else
+		REL_ITEM_ABS="${LOCAL_DIR}/${REL_ITEM}"
+	fi
 
-# Normalizar
-REL_ITEM_ABS=$(normalize_path "$REL_ITEM_ABS")
+	# Normalizar
+	REL_ITEM_ABS=$(normalize_path "$REL_ITEM_ABS")
 
-# Validar que esté dentro de LOCAL_DIR (o HOME según corresponda)
-if [[ "$REL_ITEM_ABS" != "$LOCAL_DIR"* ]]; then
-    log_error "--item apunta fuera de \$HOME o contiene path traversal: $REL_ITEM_ABS"
-    exit 1
-fi
+	# Validar que esté dentro de LOCAL_DIR (o HOME según corresponda)
+	if [[ "$REL_ITEM_ABS" != "$LOCAL_DIR"* ]]; then
+		log_error "--item apunta fuera de \$HOME o contiene path traversal: $REL_ITEM_ABS"
+		exit 1
+	fi
 
 }
 
@@ -1079,6 +1116,12 @@ fi
 verificar_dependencias
 find_config_files
 verificar_archivos_configuracion
+
+# Verificar espacio en disco (al menos 500MB libres)
+if [ $DRY_RUN -eq 0 ]; then
+    verificar_espacio_disco 500 || exit 1
+fi
+
 inicializar_log
 
 # Limpieza de temporales al salir
