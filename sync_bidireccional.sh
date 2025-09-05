@@ -218,6 +218,7 @@ mostrar_ayuda() {
     echo "  --backup-dir       Usa el directorio de backup de solo lectura (pCloud Backup) en lugar de Backup_Comun"
     echo "  --overwrite        Sobrescribe todos los archivos en destino (no usa --update)"
     echo "  --checksum         Fuerza comparación con checksum (más lento)"  
+    echo "  --bwlimit KB/s     Limita la velocidad de transferencia (ej: 1000 para 1MB/s)"    
     echo "  --help             Muestra esta ayuda"
     echo ""
     echo "Archivos de configuración:"
@@ -235,14 +236,15 @@ mostrar_ayuda() {
     echo "Hostname detectado: ${HOSTNAME}"
     echo ""
     echo "Ejemplos:"
-    echo "  ./sync_bidireccional.sh --subir"
-    echo "  ./sync_bidireccional.sh --bajar --dry-run"
-    echo "  ./sync_bidireccional.sh --subir --delete --yes"
-    echo "  ./sync_bidireccional.sh --subir --item documentos/"
-    echo "  ./sync_bidireccional.sh --bajar --item configuracion.ini --dry-run"
-    echo "  ./sync_bidireccional.sh --bajar --backup-dir --yes"
-    echo "  ./sync_bidireccional.sh --bajar --backup-dir --item documentos/ --yes"
-    echo "  ./sync_bidireccional.sh --subir --overwrite  # Sobrescribe todos los archivos"
+    echo "  sync_bidireccional.sh --subir"
+    echo "  sync_bidireccional.sh --bajar --dry-run"
+    echo "  sync_bidireccional.sh --subir --delete --yes"
+    echo "  sync_bidireccional.sh --subir --item documentos/"
+    echo "  sync_bidireccional.sh --bajar --item configuracion.ini --dry-run"
+    echo "  sync_bidireccional.sh --bajar --backup-dir --yes"
+    echo "  sync_bidireccional.sh --bajar --backup-dir --item documentos/ --yes"
+    echo "  sync_bidireccional.sh --subir --overwrite  # Sobrescribe todos los archivos"
+    echo "  sync_bidireccional.sh --subir --bwlimit 1000  # Sincronizar subiendo con límite de 1MB/s" 
 }
 
 # Función para verificar si pCloud está montado
@@ -463,6 +465,9 @@ construir_opciones_rsync() {
     [ $DELETE -eq 1 ] && RSYNC_OPTS+=(--delete-delay)
     [ $USE_CHECKSUM -eq 1 ] && RSYNC_OPTS+=(--checksum)
 
+    # Límite de ancho de banda (si está configurado)
+    [ -n "${BW_LIMIT:-}" ] && RSYNC_OPTS+=(--bwlimit="$BW_LIMIT")
+    
     if [ -n "$EXCLUSIONES" ] && [ -f "$EXCLUSIONES" ]; then
         RSYNC_OPTS+=(--exclude-from="$EXCLUSIONES")
     fi
@@ -1111,6 +1116,9 @@ while [[ $# -gt 0 ]]; do
             OVERWRITE=1; shift;;
         --checksum)
             USE_CHECKSUM=1; shift;;
+        --bwlimit)
+            [ -z "$2" ] && { log_error "--bwlimit requiere un valor (KB/s)"; exit 1; }
+            BW_LIMIT="$2"; shift 2;;
         -h|--help)
             mostrar_ayuda; exit 0;;
         *)
