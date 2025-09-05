@@ -69,6 +69,22 @@ NC='\033[0m' # No Color (reset)
 # =========================
 # Utilidades
 # =========================
+
+# Normalizar rutas con realpath -m si está disponible, fallback a la ruta tal cual
+normalize_path() {
+    local p="$1"
+    if command -v realpath >/dev/null 2>&1; then
+        realpath -m "$p" || printf '%s' "$p"
+    else
+        # realpath no disponible: intentar con readlink -f (menos portable) y si no, devolver la original
+        if command -v readlink >/dev/null 2>&1; then
+            readlink -m "$p" 2>/dev/null || printf '%s' "$p"
+        else
+            printf '%s' "$p"
+        fi
+    fi
+}
+
 # Función para determinar el directorio de pCloud según el modo
 get_pcloud_dir() {
     if [ "$BACKUP_DIR_MODE" = "readonly" ]; then
@@ -190,7 +206,7 @@ mostrar_ayuda() {
 # Función para verificar si pCloud está montado
 verificar_pcloud_montado() {
     local PCLOUD_DIR
-    PCLOUD_DIR=$(get_pcloud_dir)
+    PCLOUD_DIR=$(normalize_path "$(get_pcloud_dir)")
 
     # Verificar si el punto de montaje de pCloud existe
     if [ ! -d "$PCLOUD_MOUNT_POINT" ]; then
@@ -225,8 +241,8 @@ verificar_pcloud_montado() {
         fi
     fi
     
-    # Verificación adicional con df
-    if ! df -P "$PCLOUD_MOUNT_POINT" | grep -q "pCloud.fs"; then
+    # Verificación adicional con df (más genérica)
+    if ! df -P "$PCLOUD_MOUNT_POINT" >/dev/null 2>&1; then
         echo "ERROR: pCloud no está montado correctamente en $PCLOUD_MOUNT_POINT"
         exit 1
     fi
@@ -402,11 +418,9 @@ construir_opciones_rsync() {
         RSYNC_OPTS+=(--checksum)
     fi
 
+    # Si existe archivo de exclusiones, preferimos pasarla como --exclude-from para eficiencia
     if [ -n "$EXCLUSIONES" ] && [ -f "$EXCLUSIONES" ]; then
-        while IFS= read -r linea || [ -n "$linea" ]; do
-            [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
-            RSYNC_OPTS+=(--exclude="$linea")
-        done < "$EXCLUSIONES"
+        RSYNC_OPTS+=(--exclude-from="$EXCLUSIONES")
     fi
 }
 
@@ -701,41 +715,49 @@ sincronizar_elemento() {
 
     # Ejecutar rsync con timeout si está disponible
     local salida
+
+    # Ejecutar rsync mostrando salida en tiempo real y registrando en el log
+    local rc=0
+
+    # Preparar el comando rsync (array para seguridad con espacios)
+    local RSYNC_CMD=(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino")
+
+    # Si tenemos timeout disponible, lo envolvemos; usamos tee para mostrar + log
     if command -v timeout >/dev/null 2>&1; then
-        # Usar timeout para evitar operaciones bloqueadas (30 minutos máximo)
-        if salida=$(timeout 30m rsync "${RSYNC_OPTS[@]}" "$origen" "$destino" 2>&1); then
-            echo "✓ Sincronización completada: $elemento"
-            registrar_log "Sincronización completada: $elemento"
-            ARCHIVOS_SINCRONIZADOS+=1
-            return 0
+        if command -v stdbuf >/dev/null 2>&1; then
+            # stdbuf para evitar buffering cuando se pipea
+            timeout 30m stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee -a "$LOG_FILE"
+            rc=${PIPESTATUS[0]}
         else
-            local rc=$?
-            if [ $rc -eq 124 ]; then
-                echo "✗ Error: Timeout en sincronización: $elemento"
-                registrar_log "Error: Timeout en sincronización: $elemento"
-            else
-                echo "✗ Error en sincronización: $elemento (código: $rc)"
-                echo "Salida de error: $salida"
-                registrar_log "Error en sincronización: $elemento (código: $rc) - salida: $salida"
-            fi
-            ERRORES_SINCRONIZACION+=1
-            return $rc
+            timeout 30m "${RSYNC_CMD[@]}" 2>&1 | tee -a "$LOG_FILE"
+            rc=${PIPESTATUS[0]}
         fi
     else
-        # Sin timeout
-        if salida=$(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino" 2>&1); then
-            echo "✓ Sincronización completada: $elemento"
-            registrar_log "Sincronización completada: $elemento"
-            ARCHIVOS_SINCRONIZADOS+=1
-            return 0
+        if command -v stdbuf >/dev/null 2>&1; then
+            stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee -a "$LOG_FILE"
+            rc=${PIPESTATUS[0]}
         else
-            local rc=$?
-            echo "✗ Error en sincronización: $elemento (código: $rc)"
-            echo "Salida de error: $salida"
-            registrar_log "Error en sincronización: $elemento (código: $rc) - salida: $salida"
-            ERRORES_SINCRONIZACION+=1
-            return $rc
+            "${RSYNC_CMD[@]}" 2>&1 | tee -a "$LOG_FILE"
+            rc=${PIPESTATUS[0]}
         fi
+    fi
+
+    # Comprobar resultado (rc contiene el exit code real de rsync/timeout)
+    if [ $rc -eq 0 ]; then
+        echo "✓ Sincronización completada: $elemento"
+        registrar_log "Sincronización completada: $elemento"
+        ARCHIVOS_SINCRONIZADOS+=1
+        return 0
+    else
+        if [ $rc -eq 124 ]; then
+            echo "✗ Error: Timeout en sincronización: $elemento"
+            registrar_log "Error: Timeout en sincronización: $elemento"
+        else
+            echo "✗ Error en sincronización: $elemento (código: $rc)"
+            registrar_log "Error en sincronización: $elemento (código: $rc)"
+        fi
+        ERRORES_SINCRONIZACION+=1
+        return $rc
     fi
 }
 
@@ -905,6 +927,14 @@ verificar_dependencias
 find_config_files
 verificar_archivos_configuracion
 inicializar_log
+
+# Limpieza de temporales al salir
+cleanup() {
+    for tf in "${TEMP_FILES[@]:-}"; do
+        [ -f "$tf" ] && rm -f "$tf"
+    done
+}
+trap cleanup EXIT
 
 sincronizar
 exit_code=$?
