@@ -283,7 +283,7 @@ verificar_pcloud_montado() {
     
     # Verificación adicional con df (más genérica)
     if ! df -P "$PCLOUD_MOUNT_POINT" >/dev/null 2>&1; then
-        log_error "pCloud no está montado correctamente en $PCLOUD_MOUNT_POoint"
+        log_error "pCloud no está montado correctamente en $PCLOUD_MOUNT_POINT"
         exit 1
     fi
     
@@ -636,11 +636,21 @@ recrear_enlaces_desde_archivo() {
             mkdir -p "$dir_padre"
         fi
 
-        # Expandir placeholders ($HOME, $USERNAME) antes de cualquier operación
-        local destino_para_ln
-        destino_para_ln=$(echo "$destino" | sed \
-          -e "s|\$HOME|$HOME|g" \
-          -e "s|\$USERNAME|$USER|g")
+        # Normalizar destino y validar
+        local destino_para_ln="$destino"
+
+        # Reemplazar placeholders solo si existen
+        [[ "$destino_para_ln" == \$HOME* ]] && destino_para_ln="${HOME}${destino_para_ln#\$HOME}"
+        destino_para_ln="${destino_para_ln//\$USERNAME/$USER}"
+
+        # Normalizar ruta final
+        destino_para_ln=$(normalize_path "$destino_para_ln")
+
+        # Validar que esté dentro de $HOME
+        if [[ "$destino_para_ln" != "$HOME"* ]]; then
+            log_warn "Destino de enlace fuera de \$HOME, se omite: $ruta_enlace -> $destino_para_ln"
+            continue
+        fi
 
         # Si ya existe y apunta a lo mismo (comparar con readlink SIN -f)
         if [ -L "$ruta_completa" ]; then
@@ -706,10 +716,23 @@ resolver_item_relativo() {
     fi
     
     # Validación de seguridad: evitar path traversal
-    if [[ "$REL_ITEM" == *".."* ]]; then
-        log_error "El elemento no puede contener '..' por razones de seguridad"
-        exit 1
-    fi
+    # Normalizar y validar ruta relativa
+# Si REL_ITEM es absoluta, no tocar; si es relativa, concatenar LOCAL_DIR
+if [[ "$REL_ITEM" = /* ]]; then
+    REL_ITEM_ABS="$REL_ITEM"
+else
+    REL_ITEM_ABS="${LOCAL_DIR}/${REL_ITEM}"
+fi
+
+# Normalizar
+REL_ITEM_ABS=$(normalize_path "$REL_ITEM_ABS")
+
+# Validar que esté dentro de LOCAL_DIR (o HOME según corresponda)
+if [[ "$REL_ITEM_ABS" != "$LOCAL_DIR"* ]]; then
+    log_error "--item apunta fuera de \$HOME o contiene path traversal: $REL_ITEM_ABS"
+    exit 1
+fi
+
 }
 
 # Función para sincronizar un elemento
