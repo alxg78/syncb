@@ -909,11 +909,74 @@ generar_archivo_enlaces() {
 }
 
 # Función para recrear enlaces simbólicos 
+procesar_linea_enlace() {
+    local ruta_enlace="$1"
+    local destino="$2"
+    local exit_code=0
+
+    local ruta_completa="${LOCAL_DIR}/${ruta_enlace}"
+    local dir_padre
+    dir_padre=$(dirname "$ruta_completa")
+
+    log_debug "Procesando enlace: $ruta_enlace -> $destino"
+    
+    if [ ! -d "$dir_padre" ] && [ $DRY_RUN -eq 0 ]; then
+        mkdir -p "$dir_padre"
+    fi
+
+    # Normalizar destino y validar
+    local destino_para_ln="$destino"
+    [[ "$destino_para_ln" == \$HOME* ]] && destino_para_ln="${HOME}${destino_para_ln#\$HOME}"
+    destino_para_ln="${destino_para_ln//\$USERNAME/$USER}"
+    destino_para_ln=$(normalize_path "$destino_para_ln")
+
+    # Validar que esté dentro de $HOME
+    if [[ "$destino_para_ln" != "$HOME"* ]]; then
+        log_debug "Destino de enlace fuera de HOME: $destino_para_ln"
+        log_warn "Destino de enlace fuera de \$HOME, se omite: $ruta_enlace -> $destino_para_ln"
+        return 0
+    fi
+
+    # Si ya existe y apunta a lo mismo
+    if [ -L "$ruta_completa" ]; then
+        local destino_actual
+        destino_actual=$(readlink "$ruta_completa" 2>/dev/null || true)
+
+        if [ "$destino_actual" = "$destino_para_ln" ]; then
+            log_debug "Enlace ya existe y es correcto: $ruta_enlace"
+            log_info "Enlace ya existe y es correcto: $ruta_enlace -> $destino_para_ln"
+            ENLACES_EXISTENTES=$((ENLACES_EXISTENTES + 1))
+            return 0
+        fi
+        rm -f "$ruta_completa"
+    fi
+
+    # Crear el enlace
+    if [ $DRY_RUN -eq 1 ]; then
+        log_info "SIMULACIÓN: ln -sfn '$destino_para_ln' '$ruta_completa'"
+        log_debug "SIMULACIÓN: Enlace a crear: $ruta_completa -> $destino_para_ln"
+        ENLACES_CREADOS=$((ENLACES_CREADOS + 1))
+    else
+        if ln -sfn "$destino_para_ln" "$ruta_completa" 2>/dev/null; then
+            log_info "Creado enlace: $ruta_enlace -> $destino_para_ln"
+            log_debug "Enlace creado: $ruta_completa -> $destino_para_ln"
+            ENLACES_CREADOS=$((ENLACES_CREADOS + 1))
+        else
+            log_error "Error creando enlace: $ruta_enlace -> $destino_para_ln"
+            ENLACES_ERRORES=$((ENLACES_ERRORES + 1))
+            exit_code=1
+        fi
+    fi
+
+    return $exit_code
+}
+
 recrear_enlaces_desde_archivo() {
     local PCLOUD_DIR
     PCLOUD_DIR=$(get_pcloud_dir)
     local archivo_enlaces_origen="${PCLOUD_DIR}/${SYMLINKS_FILE}"
     local archivo_enlaces_local="${LOCAL_DIR}/${SYMLINKS_FILE}"
+    local exit_code=0
 
     log_debug "Buscando archivo de enlaces en: $archivo_enlaces_origen"
     log_info "Buscando archivo de enlaces..."
@@ -926,92 +989,27 @@ recrear_enlaces_desde_archivo() {
     else
         log_debug "No se encontró archivo de enlaces."
         log_info "No se encontró archivo de enlaces, omitiendo recreación"
-        return
+        return 0
     fi
 
     log_info "Recreando enlaces simbólicos..."
-    local contador=0
-    local errores=0
 
-    # Leer con separador de TAB
     while IFS=$'\t' read -r ruta_enlace destino || [ -n "$ruta_enlace" ] || [ -n "$destino" ]; do
-        # Saltar líneas vacías o mal formateadas
         if [ -z "$ruta_enlace" ] || [ -z "$destino" ]; then
             log_warn "Línea inválida en meta (se omite)"
             log_debug "Línea inválida en archivo de enlaces: ruta_enlace=$ruta_enlace, destino=$destino"
             continue
         fi
 
-        local ruta_completa="${LOCAL_DIR}/${ruta_enlace}"
-        local dir_padre
-        dir_padre=$(dirname "$ruta_completa")
-
-        log_debug "Procesando enlace: $ruta_enlace -> $destino"
-        if [ ! -d "$dir_padre" ] && [ $DRY_RUN -eq 0 ]; then
-            mkdir -p "$dir_padre"
+        if ! procesar_linea_enlace "$ruta_enlace" "$destino"; then
+            exit_code=1
         fi
-
-        # Normalizar destino y validar
-        local destino_para_ln="$destino"
-
-        # Reemplazar placeholders solo si existen
-        [[ "$destino_para_ln" == \$HOME* ]] && destino_para_ln="${HOME}${destino_para_ln#\$HOME}"
-        destino_para_ln="${destino_para_ln//\$USERNAME/$USER}"
-
-        # Normalizar ruta final
-        destino_para_ln=$(normalize_path "$destino_para_ln")
-
-        # Validar que esté dentro de $HOME
-        if [[ "$destino_para_ln" != "$HOME"* ]]; then
-            log_debug "Destino de enlace fuera de HOME: $destino_para_ln"
-            log_warn "Destino de enlace fuera de \$HOME, se omite: $ruta_enlace -> $destino_para_ln"
-            continue
-        fi
-
-        # Si ya existe y apunta a lo mismo (comparar con readlink SIN -f)
-        if [ -L "$ruta_completa" ]; then
-            local destino_actual
-            destino_actual=$(readlink "$ruta_completa" 2>/dev/null || true)
-
-            if [ "$destino_actual" = "$destino_para_ln" ]; then
-                log_debug "Enlace ya existe и es correcto: $ruta_enlace"
-                log_info "Enlace ya existe y es correcto: $ruta_enlace -> $destino_para_ln"
-                ENLACES_EXISTENTES=$((ENLACES_EXISTENTES + 1))
-                continue
-            fi
-            rm -f "$ruta_completa"
-        fi
-
-        # Crear el enlace
-        if [ $DRY_RUN -eq 1 ]; then
-            log_info "SIMULACIÓN: ln -sfn '$destino_para_ln' '$ruta_completa'"
-            log_debug "SIMULACIÓN: Enlace a crear: $ruta_completa -> $destino_para_ln"
-            contador=$((contador + 1))
-            ENLACES_CREADOS=$((ENLACES_CREADOS + 1))
-        else
-            if ln -sfn "$destino_para_ln" "$ruta_completa" 2>/dev/null; then
-                log_info "Creado enlace: $ruta_enlace -> $destino_para_ln"
-                log_debug "Enlace creado: $ruta_completa -> $destino_para_ln"
-                contador=$((contador + 1))
-                ENLACES_CREADOS=$((ENLACES_CREADOS + 1))
-            else
-                log_error "Error creando enlace: $ruta_enlace -> $destino_para_ln"
-                errores=$((errores + 1))
-                ENLACES_ERRORES=$((ENLACES_ERRORES + 1))
-            fi
-        fi
-
     done < "$archivo_enlaces_local"
 
-    log_debug "Total de enlaces recreados: $contador, errores: $errores"
-    log_info "Enlaces recreados: $contador, Errores: $errores"
-
-    log_info "Resumen de enlaces simbólicos:"
-    log_info "  Enlaces creados: $ENLACES_CREADOS"
-    log_info "  Enlaces existentes: $ENLACES_EXISTENTES"
-    log_info "  Enlaces con errores: $ENLACES_ERRORES"
-
+    log_info "Enlaces recreados: $ENLACES_CREADOS, Errores: $ENLACES_ERRORES"
     [ $DRY_RUN -eq 0 ] && rm -f "$archivo_enlaces_local"
+    
+    return $exit_code
 }
 
 
