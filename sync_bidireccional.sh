@@ -300,6 +300,81 @@ mostrar_ayuda() {
     echo "  sync_bidireccional.sh --test           # Ejecutar tests unitarios"
 }
 
+# Función para procesar argumentos de línea de comandos
+procesar_argumentos() {
+	# Procesar argumentos
+	if [ $# -eq 0 ]; then
+		log_error "Debes especificar al menos --subir o --bajar"
+		mostrar_ayuda
+		exit 1
+	fi
+
+	log_debug "Argumentos recibidos: $*"
+
+	# Verificación de argumentos duplicados (solo para opciones)
+	declare -A seen_opts
+	for arg in "$@"; do
+		if [[ "$arg" == --* ]]; then
+		    # Excluir --item y --exclude de la verificación de duplicados
+		    if [[ "$arg" != "--item" && "$arg" != "--exclude" ]]; then
+		        if [[ -v seen_opts[$arg] ]]; then
+		            log_error "Opción duplicada: $arg"
+		            exit 1
+		        fi
+		        seen_opts["$arg"]=1
+		    fi
+		fi
+	done
+
+    # Procesar cada argumento
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --subir)
+                [ -n "$MODO" ] && { log_error "No puedes usar --subir y --bajar simultáneamente"; exit 1; }
+                MODO="subir"; shift;;
+            --bajar)
+                [ -n "$MODO" ] && { log_error "No puedes usar --subir y --bajar simultáneamente"; exit 1; }
+                MODO="bajar"; shift;;
+            --delete)
+                DELETE=1; shift;;
+            --dry-run)
+                DRY_RUN=1; shift;;
+            --item)
+                [ -z "$2" ] && { log_error "--item requiere un argumento"; exit 1; }
+                ITEMS_ESPECIFICOS+=("$2"); shift 2;;
+            --exclude)
+                [ -z "$2" ] && { log_error "--exclude requiere un patrón"; exit 1; }
+                EXCLUSIONES_CLI+=("$2"); shift 2;;
+            --yes)
+                YES=1; shift;;
+            --backup-dir)
+                BACKUP_DIR_MODE="readonly"; shift;;
+            --overwrite)
+                OVERWRITE=1; shift;;
+            --checksum)
+                USE_CHECKSUM=1; shift;;
+            --bwlimit)
+                [ -z "$2" ] && { log_error "--bwlimit requiere un valor (KB/s)"; exit 1; }
+                BW_LIMIT="$2"; shift 2;;
+            --timeout)
+                [ -z "$2" ] && { log_error "--timeout requiere minutos"; exit 1; }
+                TIMEOUT_MINUTES="$2"; shift 2;;
+            --force-unlock)
+                log_warn "Forzando eliminación de lock: $LOCK_FILE"
+                rm -f "$LOCK_FILE"
+                exit 0;;
+            --verbose) 
+                VERBOSE=1; shift;;
+            --test)
+                run_tests; exit $?;;
+            -h|--help)
+                mostrar_ayuda; exit 0;;
+            *)
+                log_error "Opción desconocida: $1"; mostrar_ayuda; exit 1;;
+        esac
+    done
+}
+
 # Función para verificar si pCloud está montado
 verificar_pcloud_montado() {
     local PCLOUD_DIR
@@ -1557,77 +1632,9 @@ run_tests() {
 # =========================
 # Args
 # =========================
-# Procesar argumentos
-if [ $# -eq 0 ]; then
-    log_error "Debes especificar al menos --subir o --bajar"
-    mostrar_ayuda
-    exit 1
-fi
 
-log_debug "Argumentos recibidos: $*"
-
-# Verificación de argumentos duplicados (solo para opciones)
-declare -A seen_opts
-for arg in "$@"; do
-    if [[ "$arg" == --* ]]; then
-        # Excluir --item y --exclude de la verificación de duplicados
-        if [[ "$arg" != "--item" && "$arg" != "--exclude" ]]; then
-            if [[ -v seen_opts[$arg] ]]; then
-                log_error "Opción duplicada: $arg"
-                exit 1
-            fi
-            seen_opts["$arg"]=1
-        fi
-    fi
-done
-
-log_debug "Procesando argumentos..."
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --subir)
-            [ -n "$MODO" ] && { log_error "No puedes usar --subir y --bajar simultáneamente"; exit 1; }
-            MODO="subir"; shift;;
-        --bajar)
-            [ -n "$MODO" ] && { log_error "No puedes usar --subir y --bajar simultáneamente"; exit 1; }
-            MODO="bajar"; shift;;
-        --delete)
-            DELETE=1; shift;;
-        --dry-run)
-            DRY_RUN=1; shift;;
-		--item)
-				[ -z "$2" ] && { log_error "--item requiere un argumento"; exit 1; }
-				ITEMS_ESPECIFICOS+=("$2"); shift 2;;
-		--exclude)
-				[ -z "$2" ] && { log_error "--exclude requiere un patrón"; exit 1; }
-				EXCLUSIONES_CLI+=("$2"); shift 2;;
-        --yes)
-            YES=1; shift;;
-        --backup-dir)
-            BACKUP_DIR_MODE="readonly"; shift;;
-        --overwrite)
-            OVERWRITE=1; shift;;
-        --checksum)
-            USE_CHECKSUM=1; shift;;
-        --bwlimit)
-            [ -z "$2" ] && { log_error "--bwlimit requiere un valor (KB/s)"; exit 1; }
-            BW_LIMIT="$2"; shift 2;;
-        --timeout)
-            [ -z "$2" ] && { log_error "--timeout requiere minutos"; exit 1; }
-            TIMEOUT_MINUTES="$2"; shift 2;;
-        --force-unlock)
-            log_warn "Forzando eliminación de lock: $LOCK_FILE"
-            rm -f "$LOCK_FILE"
-            exit 0;;
-        --verbose) 
-            VERBOSE=1; shift;;
-        --test)
-            run_tests; exit $?;;
-        -h|--help)
-            mostrar_ayuda; exit 0;;
-        *)
-            log_error "Opción desconocida: $1"; mostrar_ayuda; exit 1;;
-    esac
-done
+# Procesar los argumentos usando la función
+procesar_argumentos "$@"
 
 # Banner de cabecera
 mostrar_banner
