@@ -1568,7 +1568,7 @@ exit_code=$?
 # Eliminar el lock antes de mostrar el resumen
 eliminar_lock_final
 
-echo ""
+#echo ""
 mostrar_estadísticas
 
 # Enviar notificación de finalización
