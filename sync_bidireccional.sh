@@ -33,8 +33,7 @@ PCLOUD_BACKUP_READONLY="${PCLOUD_MOUNT_POINT}/pCloud Backup/feynman.sobremesa.dn
 # Determinar el directorio donde se encuentra este script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Obtener el hostname de la máquina
-# Usar FQDN en lugar del nombre corto (cambio mínimo solicitado)
+# Obtener el hostname de la máquina (usar FQDN si está disponible)
 HOSTNAME=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "unknown-host")
 
 # Hostname de la maquina virtual de RTVA
@@ -62,7 +61,7 @@ declare -a ITEMS_ESPECIFICOS=()
 declare -a EXCLUSIONES_CLI=()
 
 # Variables para estadísticas
-declare -i ARCHIVOS_SINCRONIZADOS=0
+declare -i ELEMENTOS_PROCESADOS=0
 declare -i ERRORES_SINCRONIZACION=0
 declare -i ARCHIVOS_TRANSFERIDOS=0
 declare -i ENLACES_CREADOS=0
@@ -112,7 +111,7 @@ log_error() {
 
 log_success() {
     local msg="$1"
-    echo -e "${GREEN}[SUCCESS]${NC} $msg"
+    echo -e "${GREEN}[SUCCESS]${NC} $msg" >&2
     registrar_log "[SUCCESS] $msg"
 }
 
@@ -120,7 +119,7 @@ DEBUG=0
 # Función de debug que se activa con DEBUG=1 o VERBOSE=1
 log_debug() {
     if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
-        echo -e "${BLUE}[DEBUG]${NC} $1"
+        echo -e "${BLUE}[DEBUG]${NC} $1" >&2
         registrar_log "[DEBUG] $1"
     fi
 }
@@ -248,7 +247,7 @@ find_config_files() {
 
 # Función para mostrar ayuda
 mostrar_ayuda() {
-    echo "Uso: $0 [OPCIONES]"
+    echo "Uso: $0 [OPCIONES]" >&2
     echo ""
     echo "Opciones PRINCIPALES (obligatorio una de ellas):"
     echo "  --subir            Sincroniza desde el directorio local a pCloud (${LOCAL_DIR} → pCloud)"
@@ -270,7 +269,7 @@ mostrar_ayuda() {
     echo "  --test             Ejecutar tests unitarios"
     echo "  --help             Muestra esta ayuda"
     echo ""
-    echo "Archivos de configuración:"
+    echo "Archivos de configuración:" >&2
     echo "  - Directorio del script: ${SCRIPT_DIR}/"
     echo "  - Directorio actual: $(pwd)/"
     
@@ -282,7 +281,7 @@ mostrar_ayuda() {
     
     echo "  - Busca: sync_bidireccional_exclusiones.ini"
     echo ""
-    echo "Hostname detectado: ${HOSTNAME}"
+    echo "Hostname detectado: ${HOSTNAME}" >&2
     echo ""
     echo "Ejemplos:"
     echo "  sync_bidireccional.sh --subir"
@@ -303,7 +302,7 @@ mostrar_ayuda() {
 # Función para procesar argumentos de línea de comandos
 procesar_argumentos() {
 	# Procesar argumentos
-	if [ $# -eq 0 ]; then
+	if [ $# -eq 0 ] || [[ "$*" =~ --help ]]; then
 		log_error "Debes especificar al menos --subir o --bajar"
 		mostrar_ayuda
 		exit 1
@@ -313,18 +312,18 @@ procesar_argumentos() {
 
 	# Verificación de argumentos duplicados (solo para opciones)
 	declare -A seen_opts
-	for arg in "$@"; do
-		if [[ "$arg" == --* ]]; then
-		    # Excluir --item y --exclude de la verificación de duplicados
-		    if [[ "$arg" != "--item" && "$arg" != "--exclude" ]]; then
-		        if [[ -v seen_opts[$arg] ]]; then
-		            log_error "Opción duplicada: $arg"
-		            exit 1
-		        fi
-		        seen_opts["$arg"]=1
-		    fi
-		fi
-	done
+	for ((i=1; i<=$#; i++)); do
+        arg="${!i}"
+        if [[ "$arg" == --* ]] && [[ "$arg" != "--item" ]] && [[ "$arg" != "--exclude" ]]; then
+            if [[ -v seen_opts["$arg"] ]]; then
+                log_error "Opción duplicada: $arg"
+                exit 1
+            fi
+            seen_opts["$arg"]=1
+        elif [[ "$arg" == --item ]] || [[ "$arg" == --exclude ]]; then
+            ((i++))  # Saltar el siguiente argumento (valor de --item o --exclude)
+        fi
+ 	done
 
     # Procesar cada argumento
     while [[ $# -gt 0 ]]; do
@@ -383,7 +382,7 @@ verificar_pcloud_montado() {
     # Verificar si el punto de montaje de pCloud existe
     log_debug "Verificando montaje de pCloud en: $PCLOUD_MOUNT_POINT"
 
-    if [ ! -d "$PCLOUD_MOUNT_POINT" ]; then
+    if [[ ! -d "$PCLOUD_MOUNT_POINT" ]]; then
         log_error "El punto de montaje de pCloud no existe: $PCLOUD_MOUNT_POINT"
         log_info "Asegúrate de que pCloud Drive esté instalado y ejecutándose."
         return 1
@@ -391,7 +390,7 @@ verificar_pcloud_montado() {
     
     # Verificación más robusta: comprobar si pCloud está realmente montado
     # 1. Verificar si el directorio está vacío (puede indicar que no está montado)
-    log_debug "Verificando si el directorio de pCloud está vacío..."
+    log_debug "Verificando si el directorio de pCloud está vacío: $PCLOUD_MOUNT_POINT"
     if [ -z "$(ls -A "$PCLOUD_MOUNT_POINT" 2>/dev/null)" ]; then
         log_error "El directorio de pCloud está vacío: $PCLOUD_MOUNT_POINT"
         log_info "Esto sugiere que pCloud Drive no está montado correctamente."
@@ -399,22 +398,22 @@ verificar_pcloud_montado() {
     fi
 
     # 2. Verificar usando el comando mount
-    if command -v findmnt >/dev/null 2>&1; then
+    if command -v findmnt &>/dev/null; then
         log_debug "Verificando montaje con findmnt..."
-        if ! findmnt -rno TARGET "$PCLOUD_MOUNT_POINT" >/dev/null 2>&1; then
+        if ! findmnt -rno TARGET "$PCLOUD_MOUNT_POINT" &>/dev/null; then
             log_error "pCloud no aparece montado en $PCLOUD_MOUNT_POINT"
             exit 1
         fi
-    elif command -v mountpoint >/dev/null 2>&1; then
+    elif command -v mountpoint &>/dev/null; then
         log_debug "Verificando montaje con mountpoint..."
         if ! mountpoint -q "$PCLOUD_MOUNT_POINT"; then
             log_error "pCloud no aparece montado en $PCLOUD_MOUNT_POINT"
             exit 1
         fi
     else
-        log_debug "Verificando montaje con mount..."
-        if ! mount | grep -qi "pcloud"; then
-            log_error "pCloud no aparece en la lista de sistemas montados"
+        log_debug "Verificando montaje con /proc/mounts..."
+        if ! grep -q "pcloud" /proc/mounts 2>/dev/null; then
+            log_error "pCloud no aparece en /proc/mounts"
             exit 1
         fi
     fi
@@ -422,7 +421,7 @@ verificar_pcloud_montado() {
     # Verificación adicional con df (más genérica) 
     log_debug "Verificando montaje con df..."
 
-    if ! df -P "$PCLOUD_MOUNT_POINT" >/dev/null 2>&1; then
+    if ! df -P "$PCLOUD_MOUNT_POINT" &>/dev/null; then
         log_error "pCloud no está montado correctamente en $PCLOUD_MOUNT_POINT"
         exit 1
     fi
@@ -478,7 +477,7 @@ mostrar_banner() {
     fi
     
     if [ $DRY_RUN -eq 1 ]; then
-        echo -e "ESTADO: ${GREEN}MODO SIMULACIÓN${NC} (no se realizarán cambios)"
+        echo -e "ESTADO: ${YELLOW}MODO SIMULACIÓN${NC} (no se realizarán cambios)"
     fi
     
     if [ $DELETE -eq 1 ]; then
@@ -495,7 +494,7 @@ mostrar_banner() {
         echo "MODO: SEGURO (--update activado)"
     fi
 
-	if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
+	if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ] && [ -n "${ITEMS_ESPECIFICOS[0]}" ]; then
 		echo "ELEMENTOS ESPECÍFICOS: ${ITEMS_ESPECIFICOS[*]}"
 	else
 		echo "LISTA: ${LISTA_SINCRONIZACION:-No encontrada}"
@@ -505,7 +504,7 @@ mostrar_banner() {
     
     # Exclusiones linea comandos EXCLUSIONES_CLI
     if [ ${#EXCLUSIONES_CLI[@]} -gt 0 ]; then
-        echo "Exclusiones CLI (${#EXCLUSIONES_CLI[@]}):"
+        echo "EXCLUSIONES CLI (${#EXCLUSIONES_CLI[@]} patrones):"
         for i in "${!EXCLUSIONES_CLI[@]}"; do
             echo "  $((i+1)). ${EXCLUSIONES_CLI[$i]}"
         done
@@ -537,11 +536,11 @@ confirmar_ejecucion() {
 
 # Función para verificar y crear archivo de log
 inicializar_log() {
-    # Truncar log si supera 5MB (compatible con macOS y Linux)
+    # Truncar log si supera 10MB (compatible con macOS y Linux)
     log_debug "Inicializando archivo de log: $LOG_FILE"
 
     if [ -f "$LOG_FILE" ]; then
-        if [ "$(uname)" = "Darwin" ]; then
+        if [[ "$(uname)" == "Darwin" ]]; then
             # macOS
             LOG_SIZE=$(stat -f%z "$LOG_FILE" 2>/dev/null || echo 0)
         else
@@ -574,7 +573,7 @@ inicializar_log() {
 # Función para verificar dependencias
 verificar_dependencias() {
     log_debug "Verificando dependencias..."
-    if ! command -v rsync &>/dev/null; then
+    if ! command -v rsync >/dev/null 2>&1; then
         log_error "rsync no está instalado. Instálalo con:"
         log_info "sudo apt install rsync  # Debian/Ubuntu"
         log_info "sudo dnf install rsync  # RedHat/CentOS"
@@ -585,7 +584,7 @@ verificar_dependencias() {
 # Función para verificar archivos de configuración
 verificar_archivos_configuracion() {
     log_debug "Verificando archivos de configuración..."
-    if [ ${#ITEMS_ESPECIFICOS[@]} -eq 0 ] && [ -z "$LISTA_SINCRONIZACION" ]; then
+    if [ ${#ITEMS_ESPECIFICOS[@]} -eq 0 ] && { [ -z "$LISTA_SINCRONIZACION" ] || [ ! -f "$LISTA_SINCRONIZACION" ]; }; then
         log_error "No se encontró el archivo de lista 'sync_bidireccional_directorios.ini'"
         log_info "Busca en:"
         log_info "  - ${SCRIPT_DIR}/"
@@ -622,7 +621,7 @@ construir_opciones_rsync() {
 
     # Límite de ancho de banda (si está configurado)
     log_debug "BW_LIMIT: ${BW_LIMIT:-no establecido}"
-    [ -n "${BW_LIMIT:-}" ] && RSYNC_OPTS+=(--bwlimit="$BW_LIMIT")
+    [ -n "$BW_LIMIT" ] && RSYNC_OPTS+=(--bwlimit="$BW_LIMIT")
     
     if [ -n "$EXCLUSIONES" ] && [ -f "$EXCLUSIONES" ]; then
         RSYNC_OPTS+=(--exclude-from="$EXCLUSIONES")
@@ -651,12 +650,12 @@ mostrar_estadísticas() {
     echo "=========================================="
     echo "RESUMEN DE SINCRONIZACIÓN"
     echo "=========================================="
-    echo "Elementos procesados: $ARCHIVOS_SINCRONIZADOS"
-    echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
-    [ $DELETE -eq 1 ] && echo "Archivos borrados: $ARCHIVOS_BORRADOS"
-    [ ${#EXCLUSIONES_CLI[@]} -gt 0 ] && echo "Exclusiones CLI aplicadas: ${#EXCLUSIONES_CLI[@]}"
+    echo "Elementos procesados: $ELEMENTOS_PROCESADOS"
+    echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS" 
+    [ $DELETE -eq 1 ] && echo "Archivos borrados en destino: $ARCHIVOS_BORRADOS"
+    [ ${#EXCLUSIONES_CLI[@]} -gt 0 ] && echo "Exclusiones CLI aplicadas: ${#EXCLUSIONES_CLI[@]} patrones"
     echo "Enlaces manejados: $((ENLACES_CREADOS + ENLACES_EXISTENTES))"
-    echo "  - Enlaces detectados/guardados: $ENLACES_DETECTADOS"    
+    echo "  - Enlaces detectados/guardados: $ENLACES_DETECTADOS" 
     echo "  - Enlaces creados: $ENLACES_CREADOS"
     echo "  - Enlaces existentes: $ENLACES_EXISTENTES"
     echo "  - Enlaces con errores: $ENLACES_ERRORES"
@@ -670,7 +669,7 @@ mostrar_estadísticas() {
         echo "Tiempo total: ${segundos}s"
     fi
     
-    echo "Velocidad promedio: $((${ARCHIVOS_TRANSFERIDOS}/${tiempo_total:-1})) archivos/segundo"
+    echo "Velocidad promedio: $((ARCHIVOS_TRANSFERIDOS / (tiempo_total > 0 ? tiempo_total : 1))) archivos/segundo"
     echo "Modo: $([ $DRY_RUN -eq 1 ] && echo 'SIMULACIÓN' || echo 'EJECUCIÓN REAL')"
     echo "=========================================="
 }
@@ -687,10 +686,10 @@ verificar_espacio_disco() {
     # Determinar el punto de montaje a verificar según el modo
     if [ "$MODO" = "subir" ]; then
         mount_point="$PCLOUD_MOUNT_POINT"
-        tipo_operacion="subida a pCloud"
+        tipo_operacion="SUBIDA a pCloud"
     else
         mount_point="$LOCAL_DIR"
-        tipo_operacion="bajada desde pCloud"
+        tipo_operacion="BAJADA desde pCloud"
     fi
 
     # Verificar que el punto de montaje existe
@@ -717,7 +716,7 @@ verificar_espacio_disco() {
     fi
 
     if [ "$available_mb" -lt "$needed_mb" ]; then
-        log_error "Espacio insuficiente para $tipo_operacion en $mount_point"
+        log_error "Espacio insuficiente para $tipo_operacion en $mount_point" 
         log_error "Disponible: ${available_mb}MB, Necesario: ${needed_mb}MB"
         return 1
     fi
@@ -771,7 +770,7 @@ notificar_finalizacion() {
     
     if [ $exit_code -eq 0 ]; then
         enviar_notificacion "Sincronización Completada" \
-            "Sincronización finalizada con éxito\n• Elementos: $ARCHIVOS_SINCRONIZADOS\n• Transferidos: $ARCHIVOS_TRANSFERIDOS\n• Tiempo: ${SECONDS}s" \
+            "Sincronización finalizada con éxito\n• Elementos: $ELEMENTOS_PROCESADOS\n• Transferidos: $ARCHIVOS_TRANSFERIDOS\n• Tiempo: ${SECONDS}s" \
             "info"
     else
         enviar_notificacion "Sincronización con Errores" \
@@ -806,7 +805,7 @@ establecer_lock() {
         fi
     fi
     
-    echo "$$" > "$LOCK_FILE"
+    echo $$ > "$LOCK_FILE"
     log_debug "Lock establecido para PID: $$"
     log_info "Lock establecido: $LOCK_FILE"
     return 0
@@ -814,8 +813,8 @@ establecer_lock() {
 
 # Función para eliminar el lock
 eliminar_lock() {
-    if [ -f "$LOCK_FILE" ] && [ "$(head -n 1 "$LOCK_FILE" 2>/dev/null)" = "$$" ]; then
-        log_debug "Eliminando lock para PID: $$"
+    if [ -f "$LOCK_FILE" ] && [[ "$(head -n 1 "$LOCK_FILE" 2>/dev/null)" == "$$" ]]; then
+        log_debug "Eliminando lock para PID: $$" 
         rm -f "$LOCK_FILE"
         log_info "Lock eliminado"
     fi
@@ -837,7 +836,7 @@ validate_rsync_opts() {
     for opt in "${RSYNC_OPTS[@]:-}"; do
         log_debug "Validando opción de rsync: $opt"
         # Si por alguna razón aparece la cadena 'rsync' en una opción, abortar
-        if printf '%s' "$opt" | grep -qi 'rsync'; then
+       if echo "$opt" | grep -qi 'rsync'; then
             log_error "RSYNC_OPTS contiene un elemento sospechoso con 'rsync': $opt"
             log_info "Contenido actual de RSYNC_OPTS:"
             declare -p RSYNC_OPTS
@@ -866,7 +865,7 @@ registrar_enlace() {
     local enlace="$1"
     local archivo_enlaces="$2"
 
-    log_debug "Procesando enlace: $enlace"
+    log_debug "Procesando enlace simbólico: $enlace"
     # Solo enlaces simbólicos
     [ -L "$enlace" ] || return
 
@@ -903,7 +902,7 @@ registrar_enlace() {
     fi
 
     printf "%s\t%s\n" "$ruta_relativa" "$destino" >> "$archivo_enlaces"
-    log_debug "Registrado enlace: $ruta_relativa -> $destino"
+    log_debug "Registrado enlace simbólico: $ruta_relativa -> $destino"
     log_info "Registrado enlace: $ruta_relativa -> $destino"
     ENLACES_DETECTADOS=$((ENLACES_DETECTADOS + 1))
 }
@@ -932,7 +931,7 @@ generar_archivo_enlaces() {
     
     : > "$archivo_enlaces"
 
-    if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
+    if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ] && [ -n "${ITEMS_ESPECIFICOS[0]}" ]; then
         for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
             local ruta_completa="${LOCAL_DIR}/${elemento}"
             log_debug "Buscando enlaces para elemento específico: $ruta_completa"
@@ -944,7 +943,7 @@ generar_archivo_enlaces() {
             fi
         done
     else
-        while IFS= read -r elemento || [ -n "$elemento" ]; do
+        while IFS= read -r elemento || [[ -n "$elemento" ]]; do
             [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]] || continue
             
             # Validación de seguridad adicional
@@ -995,7 +994,7 @@ procesar_linea_enlace() {
 
     log_debug "Procesando enlace: $ruta_enlace -> $destino"
     
-    if [ ! -d "$dir_padre" ] && [ $DRY_RUN -eq 0 ]; then
+    if [[ ! -d "$dir_padre" ]] && [[ $DRY_RUN -eq 0 ]]; then
         mkdir -p "$dir_padre"
     fi
 
@@ -1008,7 +1007,7 @@ procesar_linea_enlace() {
     # Validar que esté dentro de $HOME
     if [[ "$destino_para_ln" != "$HOME"* ]]; then
         log_debug "Destino de enlace fuera de HOME: $destino_para_ln"
-        log_warn "Destino de enlace fuera de \$HOME, se omite: $ruta_enlace -> $destino_para_ln"
+        log_warn "Destino de enlace fuera de \$HOME, se omite: $ruta_enlace -> $destino_para_ln" 
         return 0
     fi
 
@@ -1071,7 +1070,7 @@ recrear_enlaces_desde_archivo() {
 
     while IFS=$'\t' read -r ruta_enlace destino || [ -n "$ruta_enlace" ] || [ -n "$destino" ]; do
         if [ -z "$ruta_enlace" ] || [ -z "$destino" ]; then
-            log_warn "Línea inválida en meta (se omite)"
+            log_warn "Línea inválida en archivo de enlaces (se omite)"
             log_debug "Línea inválida en archivo de enlaces: ruta_enlace=$ruta_enlace, destino=$destino"
             continue
         fi
@@ -1094,7 +1093,7 @@ recrear_enlaces_desde_archivo() {
 resolver_item_relativo() {
     local item="$1"
     
-    if [ -z "$item" ]; then
+    if [[ -z "$item" ]]; then
         REL_ITEM=""
         return
     fi
@@ -1145,7 +1144,7 @@ ejecutar_rsync() {
     local rc=0
     
     local RSYNC_CMD=(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino")
-    local timeout_minutes=${TIMEOUT_MINUTES:-30}
+    local timeout_minutes=${TIMEOUT_MINUTES:-30}  # Default 30 minutos
 
     log_debug "Timeout configurado: $timeout_minutes minutos"
     
@@ -1197,8 +1196,8 @@ procesar_salida_rsync() {
     TEMP_FILES=("${TEMP_FILES[@]/$temp_output}")
 
     # Actualizar contadores globales
-    ARCHIVOS_SINCRONIZADOS=$((ARCHIVOS_SINCRONIZADOS + 1))
-    ARCHIVOS_TRANSFERIDOS=$((ARCHIVOS_TRANSFERIDOS + count))
+    ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
+    ARCHIVOS_TRANSFERIDOS=$((ARCHIVOS_TRANSFERIDOS + count)) 
 
     # Devolver múltiples valores como una cadena
     echo "${CREADOS}|${ACTUALIZADOS}|${count}"
@@ -1226,7 +1225,7 @@ sincronizar_elemento() {
     # Verificar si el origen existe
     log_debug "Verificando existencia de origen: $origen"
     if [ ! -e "$origen" ]; then
-        log_warn "No existe $origen"
+        log_warn "No existe $origen (se omite)"
         return 1
     fi
     
@@ -1238,7 +1237,7 @@ sincronizar_elemento() {
 
     # Advertencia si el elemento contiene espacios
     if [[ "$elemento" =~ [[:space:]] ]]; then
-        log_debug "El elemento contiene espacios, puede causar problemas: $elemento"
+        log_debug "El elemento contiene espacios, puede causar problemas: '$elemento'"
         log_warn "El elemento contiene espacios: '$elemento'"
     fi
 
@@ -1247,7 +1246,7 @@ sincronizar_elemento() {
     if [ ! -d "$dir_destino" ] && [ $DRY_RUN -eq 0 ]; then
         log_debug "Creando directorio de destino: $dir_destino"
         mkdir -p "$dir_destino"
-        log_info "Directorio creado: $dir_destino"
+        log_info "Directorio de destino creado: $dir_destino"
     elif [ ! -d "$dir_destino" ] && [ $DRY_RUN -eq 1 ]; then
         log_debug "SIMULACIÓN: Se crearía directorio: $dir_destino"
         log_info "SIMULACIÓN: Se crearía directorio: $dir_destino"
@@ -1339,7 +1338,6 @@ verificar_precondiciones() {
 
 procesar_elementos() {
     local exit_code=0
-    local elementos_procesados=0
     
     if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
         log_info "Sincronizando ${#ITEMS_ESPECIFICOS[@]} elementos específicos"
@@ -1349,7 +1347,7 @@ procesar_elementos() {
             
             if [ -n "$REL_ITEM" ]; then
                 sincronizar_elemento "$REL_ITEM" || exit_code=1
-                elementos_procesados=$((elementos_procesados + 1))
+                ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
             else
                 log_error "Elemento '$elemento' no válido o vacío después de resolución"
                 exit_code=1
@@ -1362,12 +1360,12 @@ procesar_elementos() {
             [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
             log_debug "Procesando elemento de lista: $linea"
             sincronizar_elemento "$linea" || exit_code=1
-            elementos_procesados=$((elementos_procesados + 1))
+            ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
             echo "------------------------------------------"
         done < "$LISTA_SINCRONIZACION"
     fi
     
-    log_info "Procesados $elementos_procesados elementos con código de salida: $exit_code"
+    log_info "Procesados $ELEMENTOS_PROCESADOS elementos con código de salida: $exit_code"
     return $exit_code
 }
 
@@ -1631,6 +1629,7 @@ run_tests() {
 
 # =========================
 # Args
+# Procesamiento de argumentos
 # =========================
 
 # Procesar los argumentos usando la función
@@ -1652,7 +1651,7 @@ if [ -z "$MODO" ]; then
 fi
 
 # =========================
-# Main
+# Función principal
 # Mostrar información de debugging si está habilitado
 # =========================
 verificar_dependencias
@@ -1696,8 +1695,8 @@ notificar_finalizacion $exit_code
 {
     echo "=========================================="
     echo "Sincronización finalizada: $(date)"
-    echo "Elementos sincronizados: $ARCHIVOS_SINCRONIZADOS"
-    echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
+    echo "Elementos procesados: $ELEMENTOS_PROCESADOS"
+    echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS" 
     [ $DELETE -eq 1 ] && echo "Archivos borrados: $ARCHIVOS_BORRADOS"
     [ ${#EXCLUSIONES_CLI[@]} -gt 0 ] && echo "Exclusiones CLI aplicadas: ${#EXCLUSIONES_CLI[@]}"
     echo "Modo dry-run: $([ $DRY_RUN -eq 1 ] && echo 'Sí' || echo 'No')"
