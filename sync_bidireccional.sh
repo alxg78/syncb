@@ -311,7 +311,7 @@ verificar_pcloud_montado() {
     if [ ! -d "$PCLOUD_MOUNT_POINT" ]; then
         log_error "El punto de montaje de pCloud no existe: $PCLOUD_MOUNT_POINT"
         log_info "Asegúrate de que pCloud Drive esté instalado y ejecutándose."
-        exit 1
+        return 1
     fi
     
     # Verificación más robusta: comprobar si pCloud está realmente montado
@@ -1211,67 +1211,140 @@ sincronizar_elemento() {
     fi
 }
 
+# =========================
+# Funciones modulares para sincronización
+# =========================
+verificar_precondiciones() {
+    log_debug "Verificando precondiciones..."
+    
+    # Verificar pCloud montado
+    if ! verificar_pcloud_montado; then
+        log_error "Fallo en verificación de pCloud montado - abortando"
+        return 1
+    else
+        log_info "✓ Verificación de pCloud montado: OK"
+    fi
+    
+    # Verificar conectividad (solo advertencia)
+    verificar_conectividad_pcloud
+    
+    # Verificar espacio en disco (solo en modo ejecución real)
+    if [ $DRY_RUN -eq 0 ]; then
+        if ! verificar_espacio_disco 500; then
+            log_error "Fallo en verificación de espacio en disco - abortando"
+            return 1
+        else
+            log_info "✓ Verificación de espacio en disco: OK"
+        fi
+    else
+        log_debug "Modo dry-run: omitiendo verificación de espacio"
+    fi
+    
+    log_info "Todas las precondiciones verificadas correctamente"
+    return 0
+}
+
+procesar_elementos() {
+    local exit_code=0
+    local elementos_procesados=0
+    
+    if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
+        log_info "Sincronizando ${#ITEMS_ESPECIFICOS[@]} elementos específicos"
+        for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
+            resolver_item_relativo "$elemento"
+            log_debug "Procesando elemento: $elemento (relativo: $REL_ITEM)"
+            
+            if [ -n "$REL_ITEM" ]; then
+                sincronizar_elemento "$REL_ITEM" || exit_code=1
+                elementos_procesados=$((elementos_procesados + 1))
+            else
+                log_error "Elemento '$elemento' no válido o vacío después de resolución"
+                exit_code=1
+            fi
+            echo "------------------------------------------"
+        done
+    else
+        log_info "Procesando lista de sincronización: ${LISTA_SINCRONIZACION}"
+        while IFS= read -r linea || [ -n "$linea" ]; do
+            [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
+            log_debug "Procesando elemento de lista: $linea"
+            sincronizar_elemento "$linea" || exit_code=1
+            elementos_procesados=$((elementos_procesados + 1))
+            echo "------------------------------------------"
+        done < "$LISTA_SINCRONIZACION"
+    fi
+    
+    log_info "Procesados $elementos_procesados elementos con código de salida: $exit_code"
+    return $exit_code
+}
+
+manejar_enlaces_simbolicos() {
+    log_info "Manejando enlaces simbólicos..."
+    
+    if [ "$MODO" = "subir" ]; then
+        log_debug "Creando archivo temporal para enlaces"
+        tmp_links=$(mktemp --tmpdir sync_links.XXXXXX)
+        chmod 600 "$tmp_links"
+        TEMP_FILES+=("$tmp_links")
+        
+        if generar_archivo_enlaces "$tmp_links"; then
+            log_info "✓ Archivo de enlaces generado correctamente"
+        else
+            log_error "Error al generar archivo de enlaces"
+            return 1
+        fi
+    else
+        log_debug "Modo bajar: recreando enlaces desde archivo"
+        if recrear_enlaces_desde_archivo; then
+            log_info "✓ Enlaces recreados correctamente"
+        else
+            log_error "Error al recrear enlaces desde archivo"
+            return 1
+        fi
+    fi
+    
+    return 0
+}
+
 # Función principal de sincronización
 sincronizar() {
     local exit_code=0
 
-    log_debug "Iniciando proceso de sincronización en modo: $MODO"
+    log_info "Iniciando proceso de sincronización en modo: $MODO"
     
-    # Verificar si pCloud está montado antes de continuar
-    verificar_pcloud_montado
-    
-    # Verificar conectividad con pCloud (solo advertencia)
-    verificar_conectividad_pcloud
-    
-    # Verificar espacio en disco (al menos 500MB libres)
-	if [ $DRY_RUN -eq 0 ]; then
-		verificar_espacio_disco 500 || exit 1
-	fi
-
-    # Preguntar confirmación antes de continuar (excepto en dry-run o si se usa --yes)
-    [ $DRY_RUN -eq 0 ] && confirmar_ejecucion
-
-	# Si se especificaron elementos específicos
-	if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
-		log_info "Sincronizando ${#ITEMS_ESPECIFICOS[@]} elementos específicos"
-		for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
-		resolver_item_relativo "$elemento"
-		log_debug "Sincronizando elemento específico: $REL_ITEM"
-		sincronizar_elemento "$REL_ITEM" || exit_code=1
-		echo "------------------------------------------"
-		done
-	else
-		log_info "Procesando lista de sincronización: ${LISTA_SINCRONIZACION}"
-		while IFS= read -r linea || [ -n "$linea" ]; do
-		[[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
-		log_debug "Procesando elemento de la lista: $linea"
-		
-		# Validación de seguridad adicional
-		if [[ "$linea" == *".."* ]]; then
-			log_error "Elemento contiene '..' - posible path traversal: $linea"
-			exit_code=1
-			continue
-		fi
-		
-		sincronizar_elemento "$linea" || exit_code=1
-		echo "------------------------------------------"
-		done < "$LISTA_SINCRONIZACION"
-	fi
-    
-    # Manejo de enlaces simbólicos
-    if [ "$MODO" = "subir" ]; then
-        # Generar y subir archivo de enlaces
-        log_debug "Generando archivo de enlaces para subida..."
-        tmp_links=$(mktemp --tmpdir sync_links.XXXXXX)
-		chmod 600 "$tmp_links"
-        TEMP_FILES+=("$tmp_links")
-        generar_archivo_enlaces "$tmp_links"
-        log_debug "Archivo de enlaces generado y subido."
-    else
-        # Recrear enlaces desde archivo
-        recrear_enlaces_desde_archivo
+    # Verificaciones previas
+    if ! verificar_precondiciones; then
+        log_error "Fallo en las precondiciones, abortando sincronización"
+        return 1
     fi
 
+    # Confirmación de ejecución (solo si no es dry-run)
+    if [ $DRY_RUN -eq 0 ]; then
+        log_debug "Solicitando confirmación de usuario"
+        confirmar_ejecucion
+    else
+        log_debug "Modo dry-run: omitiendo confirmación de usuario"
+    fi
+
+    # Procesar elementos
+    log_info "Iniciando procesamiento de elementos..."
+    if ! procesar_elementos; then
+        exit_code=1
+        log_warn "Procesamiento de elementos completado con errores"
+    else
+        log_info "✓ Procesamiento de elementos completado correctamente"
+    fi
+
+    # Manejar enlaces simbólicos
+    log_info "Iniciando manejo de enlaces simbólicos..."
+    if ! manejar_enlaces_simbolicos; then
+        exit_code=1
+        log_warn "Manejo de enlaces simbólicos completado con errores"
+    else
+        log_info "✓ Manejo de enlaces simbólicos completado correctamente"
+    fi
+
+    log_info "Sincronización completada con código de salida: $exit_code"
     return $exit_code
 }
 
