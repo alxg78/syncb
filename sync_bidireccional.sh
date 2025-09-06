@@ -1092,8 +1092,7 @@ sincronizar_elemento() {
         log_info "SIMULACIÓN: Se crearía directorio: $dir_destino"
     fi
 
-    echo ""
-    log_info "Sincronizando: $elemento ($direccion)"
+    log_info "${BLUE}Sincronizando: $elemento ($direccion)${NC}"
 
     construir_opciones_rsync
     validate_rsync_opts || { log_error "RSYNC_OPTS inválido"; return 1; }
@@ -1219,7 +1218,7 @@ sincronizar() {
 		log_info "Sincronizando ${#ITEMS_ESPECIFICOS[@]} elementos específicos"
 		for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
 		resolver_item_relativo "$elemento"
-		log_info "Sincronizando elemento específico: $REL_ITEM"
+		#log_info "Sincronizando elemento específico: $REL_ITEM"
 		sincronizar_elemento "$REL_ITEM" || exit_code=1
 		echo "------------------------------------------"
 		done
