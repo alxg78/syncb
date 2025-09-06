@@ -150,6 +150,10 @@ registrar_log() {
     fi
 }
 
+# Manejo mejorado de errores
+set -e  # Activar terminación en error
+trap 'log_error "Error crítico en línea $LINENO"; exit 1' ERR
+
 # =========================
 # Utilidades
 # =========================
