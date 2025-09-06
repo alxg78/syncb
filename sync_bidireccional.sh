@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+
+# Verificar que Bash sea compatible
+if [ -z "$BASH_VERSION" ]; then
+    echo "Este script requiere Bash. Ejecuta con: bash $0" >&2
+    exit 1
+fi
+
 set -uo pipefail
 IFS=$'\n\t'
 
