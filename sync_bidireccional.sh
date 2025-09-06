@@ -1176,9 +1176,9 @@ sincronizar_elemento() {
     # Comprobar resultado (rc contiene el exit code real de rsync/timeout)
     if [ $rc -eq 0 ]; then
         log_debug "Sincronización completada con éxito para: $elemento"
-        log_success "Sincronización completada: $elemento ($count archivos transferidos)"
         log_info "Archivos creados: $CREADOS"
         log_info "Archivos actualizados: $ACTUALIZADOS"
+        log_success "Sincronización completada: $elemento ($count archivos transferidos)"
         return 0
     else
         if [ $rc -eq 124 ]; then
