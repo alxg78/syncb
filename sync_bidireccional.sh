@@ -880,8 +880,8 @@ generar_archivo_enlaces() {
         validate_rsync_opts || { log_error "Abortando: RSYNC_OPTS inválido"; return 1; }
         print_rsync_command "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"
         if rsync "${RSYNC_OPTS[@]}" "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"; then
-            log_success "Archivo de enlaces sincronizado"
             log_info "Enlaces detectados/guardados en meta: $ENLACES_DETECTADOS"
+            log_success "Archivo de enlaces sincronizado"
         else
             log_error "Error sincronizando archivo de enlaces"
             return 1
