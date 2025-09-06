@@ -1137,40 +1137,95 @@ resolver_item_relativo() {
 }
 
 # Función para sincronizar un elemento
-ejecutar_rsync() {
-    local origen="$1"
-    local destino="$2"
-    local temp_output="$3"
-    local rc=0
-    
-    local RSYNC_CMD=(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino")
-    local timeout_minutes=${TIMEOUT_MINUTES:-30}  # Default 30 minutos
+# ---------------------------------------------------
+# Ejecuta el comando rsync con o sin timeout
+# y guarda la salida en un archivo temporal.
+#
+# Parámetros:
+#   $1 -> archivo donde guardar la salida de rsync
+#   $@ -> resto de argumentos (el comando rsync completo)
+#
+# Retorno:
+#   Devuelve el código de salida real de rsync
+# ---------------------------------------------------
+run_rsync() {
+    local output_file="$1"   # Archivo temporal
+    shift                    # Quitamos el primer parámetro
+    local timeout_minutes=${TIMEOUT_MINUTES:-30}  # Por defecto 30 minutos
+    local rc=0               # Aquí guardaremos el código de salida
 
-    log_debug "Timeout configurado: $timeout_minutes minutos"
-    
     if command -v timeout >/dev/null 2>&1 && [ $DRY_RUN -eq 0 ]; then
+        # Si existe el comando timeout y no estamos en simulación (dry-run)
         if command -v stdbuf >/dev/null 2>&1; then
-            timeout ${timeout_minutes}m stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
-            rc=${PIPESTATUS[0]}
+            # stdbuf evita que la salida se acumule en memoria
+            timeout ${timeout_minutes}m stdbuf -oL -eL "$@" > >(tee "$output_file") 2>&1
         else
-            timeout ${timeout_minutes}m "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
-            rc=${PIPESTATUS[0]}
+            timeout ${timeout_minutes}m "$@" > >(tee "$output_file") 2>&1
         fi
+        rc=$?   # Guardamos el código de salida de rsync/timeout
     else
+        # Si no hay timeout o estamos en dry-run
         if command -v stdbuf >/dev/null 2>&1; then
-            stdbuf -oL -eL "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
-            rc=${PIPESTATUS[0]}
+            stdbuf -oL -eL "$@" > >(tee "$output_file") 2>&1
         else
-            "${RSYNC_CMD[@]}" 2>&1 | tee "$temp_output"
-            rc=${PIPESTATUS[0]}
+            "$@" > >(tee "$output_file") 2>&1
         fi
+        rc=$?
     fi
 
     return $rc
 }
 
-# Función para procesar la salida de rsync y devolver múltiples valores
-# Función para sincronizar un elemento (versión completa sin subshell)
+# ---------------------------------------------------
+# Analiza la salida de rsync guardada en un archivo
+# y actualiza contadores globales.
+#
+# Parámetros:
+#   $1 -> archivo con la salida de rsync
+#
+# Variables globales que actualiza:
+#   ELEMENTOS_PROCESADOS
+#   ARCHIVOS_TRANSFERIDOS
+#   ARCHIVOS_BORRADOS (si DELETE=1)
+#
+# Variables "exportadas" para el caller:
+#   CREADOS, ACTUALIZADOS, COUNT
+# ---------------------------------------------------
+analyze_rsync_output() {
+    local file="$1"
+    local creados actualizados borrados count
+
+    # Contar archivos creados y actualizados
+    creados=$(grep '^>f' "$file" | wc -l)
+    actualizados=$(grep '^>f.st' "$file" | wc -l)
+    count=$(grep -E '^[<>].' "$file" | wc -l)
+
+    log_debug "Archivos creados: $creados, actualizados: $actualizados"
+
+    # Contar borrados solo si se usa --delete
+    if [ $DELETE -eq 1 ]; then
+        borrados=$(grep '^\*deleting' "$file" | wc -l)
+        ARCHIVOS_BORRADOS=$((ARCHIVOS_BORRADOS + borrados))
+        log_info "Archivos borrados: $borrados"
+    fi
+
+    # Actualizar contadores globales
+    ARCHIVOS_TRANSFERIDOS=$((ARCHIVOS_TRANSFERIDOS + count))
+    ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
+
+    # Guardar en variables que puede usar la función principal
+    printf -v CREADOS "%s" "$creados"
+    printf -v ACTUALIZADOS "%s" "$actualizados"
+    printf -v COUNT "%s" "$count"
+}
+
+# ---------------------------------------------------
+# Sincroniza un elemento (archivo o carpeta) entre
+# la carpeta local y pCloud, según el modo elegido.
+#
+# Parámetros:
+#   $1 -> elemento a sincronizar
+# ---------------------------------------------------
 sincronizar_elemento() {
     local elemento="$1"
     local PCLOUD_DIR
@@ -1178,108 +1233,78 @@ sincronizar_elemento() {
 
     log_debug "Sincronizando elemento: $elemento"
 
-    # Definir origen y destino según el modo
+    # Preparar rutas según el modo (subir/bajar)
     if [ "$MODO" = "subir" ]; then
-        local origen="${LOCAL_DIR}/${elemento}"
-        local destino="${PCLOUD_DIR}/${elemento}"
-        local direccion="LOCAL → PCLOUD (Subir)"
+        origen="${LOCAL_DIR}/${elemento}"
+        destino="${PCLOUD_DIR}/${elemento}"
+        direccion="LOCAL → PCLOUD (Subir)"
     else
-        local origen="${PCLOUD_DIR}/${elemento}"
-        local destino="${LOCAL_DIR}/${elemento}"
-        local direccion="PCLOUD → LOCAL (Bajar)"
+        origen="${PCLOUD_DIR}/${elemento}"
+        destino="${LOCAL_DIR}/${elemento}"
+        direccion="PCLOUD → LOCAL (Bajar)"
     fi
-    
+
     # Verificar si el origen existe
-    log_debug "Verificando existencia de origen: $origen"
     if [ ! -e "$origen" ]; then
-        log_warn "No existe $origen (se omite)"
+        log_warn "No existe $origen"
         return 1
     fi
-    
-    # Determinar si es directorio o archivo
+
+    # Normalizar si es directorio
     if [ -d "$origen" ]; then
         origen="${origen%/}/"
         destino="${destino%/}/"
     fi
 
-    # Advertencia si el elemento contiene espacios
+    # Advertencia si tiene espacios
     if [[ "$elemento" =~ [[:space:]] ]]; then
-        log_debug "El elemento contiene espacios, puede causar problemas: '$elemento'"
         log_warn "El elemento contiene espacios: '$elemento'"
     fi
 
-    # Crear directorio de destino si no existe
-    local dir_destino=$(dirname "$destino")
+    # Crear directorio destino si no existe
+    local dir_destino
+    dir_destino=$(dirname "$destino")
     if [ ! -d "$dir_destino" ] && [ $DRY_RUN -eq 0 ]; then
-        log_debug "Creando directorio de destino: $dir_destino"
         mkdir -p "$dir_destino"
-        log_info "Directorio de destino creado: $dir_destino"
+        log_info "Directorio creado: $dir_destino"
     elif [ ! -d "$dir_destino" ] && [ $DRY_RUN -eq 1 ]; then
-        log_debug "SIMULACIÓN: Se crearía directorio: $dir_destino"
         log_info "SIMULACIÓN: Se crearía directorio: $dir_destino"
     fi
 
-    log_info "${BLUE}Sincronizando: $elemento ($direccion)${NC}"
+    log_info "Sincronizando: $elemento ($direccion)"
 
+    # Construir y validar opciones de rsync
     construir_opciones_rsync
     validate_rsync_opts || { log_error "RSYNC_OPTS inválido"; return 1; }
 
-    # Imprimir comando de forma segura
-    print_rsync_command "$origen" "$destino"
-    registrar_log "Comando ejecutado: rsync ${RSYNC_OPTS[*]} $origen $destino"
-    log_debug "Opciones de rsync: ${RSYNC_OPTS[*]}"
+    local RSYNC_CMD=(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino")
 
-    # Archivo temporal para capturar la salida de rsync
-    local temp_output=$(mktemp)
+    # Crear archivo temporal para capturar salida
+    local temp_output
+    temp_output=$(mktemp)
     TEMP_FILES+=("$temp_output")
 
-    # Ejecutar rsync
-    local rc=0
-    ejecutar_rsync "$origen" "$destino" "$temp_output" || rc=$?
-    
-    # Manejar específicamente el código de salida del timeout
-    if [ $rc -eq 124 ]; then
-        log_error "TIMEOUT: La sincronización de '$elemento' excedió el límite de ${TIMEOUT_MINUTES:-30} minutos"
-        log_debug "Timeout en la sincronización del elemento: $elemento"
-        ERRORES_SINCRONIZACION=$((ERRORES_SINCRONIZACION + 1))
-        rm -f "$temp_output"
-        TEMP_FILES=("${TEMP_FILES[@]/$temp_output}")
-        return 1
-    fi
+    # Ejecutar rsync con ayuda de run_rsync
+    run_rsync "$temp_output" "${RSYNC_CMD[@]}"
+    local rc=$?
 
-    # PROCESAR LA SALIDA DE RSYNC DIRECTAMENTE (sin función separada)
-    # Contar archivos creados y actualizados
-    local CREADOS=$(grep -c '^>f' "$temp_output")
-    local ACTUALIZADOS=$(grep -c '^>f.st' "$temp_output")
-    log_debug "Archivos creados: $CREADOS, actualizados: $ACTUALIZADOS"
-
-    # Contar archivos transferidos
-    local count=$(grep -Ec '^[<>]' "$temp_output")
-
-    # Contar archivos borrados si se usó --delete
-    if [ $DELETE -eq 1 ]; then
-        local BORRADOS=$(grep -c '^\*deleting' "$temp_output")
-        ARCHIVOS_BORRADOS=$((ARCHIVOS_BORRADOS + BORRADOS))
-        log_debug "Archivos borrados: $BORRADOS"
-        log_info "Archivos borrados: $BORRADOS"
-    fi
-
-    # Actualizar contadores globales
-    ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
-    ARCHIVOS_TRANSFERIDOS=$((ARCHIVOS_TRANSFERIDOS + count))
+    # Analizar salida
+    analyze_rsync_output "$temp_output"
 
     # Limpiar archivo temporal
     rm -f "$temp_output"
-    # Eliminar de la lista de temporales
     TEMP_FILES=("${TEMP_FILES[@]/$temp_output}")
 
-    # Comprobar resultado
+    # Resultado
     if [ $rc -eq 0 ]; then
-        log_debug "Sincronización completada con éxito para: $elemento"
         log_info "Archivos creados: $CREADOS"
         log_info "Archivos actualizados: $ACTUALIZADOS"
-        log_success "Sincronización completada: $elemento ($count archivos transferidos)"
+        log_success "Sincronización completada: $elemento ($COUNT archivos transferidos)"
         return 0
+    elif [ $rc -eq 124 ]; then
+        log_error "TIMEOUT: La sincronización de '$elemento' excedió el límite"
+        ERRORES_SINCRONIZACION=$((ERRORES_SINCRONIZACION + 1))
+        return 1
     else
         log_error "Error en sincronización: $elemento (código: $rc)"
         ERRORES_SINCRONIZACION=$((ERRORES_SINCRONIZACION + 1))
