@@ -1262,7 +1262,8 @@ sincronizar() {
     if [ "$MODO" = "subir" ]; then
         # Generar y subir archivo de enlaces
         log_debug "Generando archivo de enlaces para subida..."
-        tmp_links=$(mktemp)
+        tmp_links=$(mktemp --tmpdir sync_links.XXXXXX)
+		chmod 600 "$tmp_links"
         TEMP_FILES+=("$tmp_links")
         generar_archivo_enlaces "$tmp_links"
         log_debug "Archivo de enlaces generado y subido."
