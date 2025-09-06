@@ -1170,40 +1170,7 @@ ejecutar_rsync() {
 }
 
 # Función para procesar la salida de rsync y devolver múltiples valores
-procesar_salida_rsync() {
-    local temp_output="$1"
-    local elemento="$2"
-    
-    # Contar archivos creados y actualizados
-    local CREADOS=$(grep '^>f' "$temp_output" | wc -l)
-    local ACTUALIZADOS=$(grep '^>f.st' "$temp_output" | wc -l)
-    log_debug "Archivos creados: $CREADOS, actualizados: $ACTUALIZADOS"
-
-    # Contar archivos transferidos
-    local count=$(grep -E '^[<>].' "$temp_output" | wc -l)
-
-    # Contar archivos borrados si se usó --delete
-    if [ $DELETE -eq 1 ]; then
-        local BORRADOS=$(grep '^\*deleting' "$temp_output" | wc -l)
-        ARCHIVOS_BORRADOS=$((ARCHIVOS_BORRADOS + BORRADOS))
-        log_debug "Archivos borrados: $BORRADOS"
-        log_info "Archivos borrados: $BORRADOS"
-    fi
-
-    # Limpiar archivo temporal
-    rm -f "$temp_output"
-    # Eliminar de la lista de temporales
-    TEMP_FILES=("${TEMP_FILES[@]/$temp_output}")
-
-    # Actualizar contadores globales
-    ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
-    ARCHIVOS_TRANSFERIDOS=$((ARCHIVOS_TRANSFERIDOS + count)) 
-
-    # Devolver múltiples valores como una cadena
-    echo "${CREADOS}|${ACTUALIZADOS}|${count}"
-}
-
-# Función para sincronizar un elemento
+# Función para sincronizar un elemento (versión completa sin subshell)
 sincronizar_elemento() {
     local elemento="$1"
     local PCLOUD_DIR
@@ -1280,14 +1247,31 @@ sincronizar_elemento() {
         return 1
     fi
 
-    # Procesar salida de rsync y obtener múltiples valores
-    local resultado
-    resultado=$(procesar_salida_rsync "$temp_output" "$elemento")
-    
-    # Extraer los valores individuales
-    local CREADOS=$(echo "$resultado" | cut -d'|' -f1)
-    local ACTUALIZADOS=$(echo "$resultado" | cut -d'|' -f2)
-    local count=$(echo "$resultado" | cut -d'|' -f3)
+    # PROCESAR LA SALIDA DE RSYNC DIRECTAMENTE (sin función separada)
+    # Contar archivos creados y actualizados
+    local CREADOS=$(grep -c '^>f' "$temp_output")
+    local ACTUALIZADOS=$(grep -c '^>f.st' "$temp_output")
+    log_debug "Archivos creados: $CREADOS, actualizados: $ACTUALIZADOS"
+
+    # Contar archivos transferidos
+    local count=$(grep -Ec '^[<>]' "$temp_output")
+
+    # Contar archivos borrados si se usó --delete
+    if [ $DELETE -eq 1 ]; then
+        local BORRADOS=$(grep -c '^\*deleting' "$temp_output")
+        ARCHIVOS_BORRADOS=$((ARCHIVOS_BORRADOS + BORRADOS))
+        log_debug "Archivos borrados: $BORRADOS"
+        log_info "Archivos borrados: $BORRADOS"
+    fi
+
+    # Actualizar contadores globales
+    ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
+    ARCHIVOS_TRANSFERIDOS=$((ARCHIVOS_TRANSFERIDOS + count))
+
+    # Limpiar archivo temporal
+    rm -f "$temp_output"
+    # Eliminar de la lista de temporales
+    TEMP_FILES=("${TEMP_FILES[@]/$temp_output}")
 
     # Comprobar resultado
     if [ $rc -eq 0 ]; then
