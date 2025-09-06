@@ -1017,10 +1017,18 @@ recrear_enlaces_desde_archivo() {
 # =========================
 resolver_item_relativo() {
     local item="$1"
+    
     if [ -z "$item" ]; then
         REL_ITEM=""
         return
     fi
+    
+	# Detectar varios patrones de path traversal
+	if [[ "$item" =~ (^|/)\.\.(/|$) ]] || [[ "$item" =~ ^\.\./ ]] || [[ "$item" =~ /\.\.$ ]]; then
+		log_error "Path traversal detectado: $item"
+		exit 1
+	fi
+    
     if [[ "$item" = /* ]]; then
         if [[ "$item" == "$LOCAL_DIR/"* ]]; then
             REL_ITEM="${item#${LOCAL_DIR}/}"
