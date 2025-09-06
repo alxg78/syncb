@@ -14,12 +14,20 @@ Script avanzado de sincronización bidireccional entre directorio local y pCloud
 - Rotación automática de logs
 - Compatibilidad con macOS y Linux
 - Soporte para múltiples configuraciones por hostname
+- Notificaciones del sistema al finalizar (Linux/macOS)
+- Estadísticas detalladas de rendimiento
+- Verificación de conectividad con pCloud
+- Soporte para múltiples --item y --exclude
+- Límite de tiempo por operación (timeout)
+- Detección automática de FQDN del host
 
 * Requisitos
 - Bash 4.0+
 - rsync
 - pCloud Drive montado localmente
 - Herramientas básicas: grep, awk, find, stat
+- Opcional: ~curl~ para verificación de conectividad
+- Opcional: ~notify-send~ (Linux) o ~osascript~ (macOS) para notificaciones
 
 * Instalación
 1. Guardar el script en un directorio del PATH
@@ -107,6 +115,12 @@ El script gestiona enlaces simbólicos mediante un archivo metadato (~.sync_bidi
 
 Los enlaces que apuntan fuera del directorio home se normalizan para usar ~$USERNAME~.
 
+* Sistema de Notificaciones
+El script envía notificaciones del sistema al finalizar:
+- Linux: mediante ~notify-send~
+- macOS: mediante ~osascript~
+- Fallback: mensaje en terminal con emoji (🔔)
+
 * Sistema de Locking
 El script implementa locking para prevenir ejecuciones simultáneas:
 - Lock file: ~/tmp/sync_bidireccional.lock~
@@ -118,6 +132,7 @@ El script implementa locking para prevenir ejecuciones simultáneas:
 - Rotación automática al alcanzar 10MB
 - Formatos de mensaje coloreados en terminal
 - Estadísticas detalladas al finalizar
+- Notificaciones del sistema al finalizar (éxito/error)
 
 * Troubleshooting
 
@@ -133,6 +148,9 @@ sync_bidireccional.sh --force-unlock
 ** Error: Espacio insuficiente
 El script verifica espacio pero puede necesitar más del estimado
 
+** Error: Sin conectividad
+El script verifica conectividad con pCloud. Si falla, se muestra advertencia.
+
 ** Modo verboso para debugging
 #+BEGIN_SRC shell
 sync_bidireccional.sh --subir --verbose --dry-run
@@ -144,6 +162,13 @@ Ejecutar tests de validación:
 sync_bidireccional.sh --test
 #+END_SRC
 
+* Rendimiento y Optimización
+El script incluye varias optimizaciones:
+- Límite de bandwidth configurable (~--bwlimit~)
+- Timeout por operación para evitar bloqueos
+- Sincronización con ~--whole-file~ para mejor rendimiento en redes locales
+- Modo ~--checksum~ para verificación precisa (a costa de rendimiento)
+
 * Limitaciones Conocidas
 - No soporta sincronización continúa (solo por ejecución)
 - El manejo de enlaces simbólicos complejos puede fallar
@@ -154,6 +179,7 @@ sync_bidireccional.sh --test
 - Verificación de rutas para prevenir path traversal
 - Validación de permisos de escritura
 - Sanitización de entradas (en desarrollo)
+- Verificación de que los elementos están dentro del directorio home
 
 * Mantenimiento
 El script incluye funcionalidades automáticas de mantenimiento:
