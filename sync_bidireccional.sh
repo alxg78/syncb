@@ -640,6 +640,59 @@ verificar_espacio_disco() {
     return 0
 }
 
+# Función para enviar notificaciones del sistema
+enviar_notificacion() {
+    local titulo="$1"
+    local mensaje="$2"
+    local tipo="${3:-info}"  # info, error, warning
+    
+    # Para sistemas Linux con notify-send
+    if command -v notify-send >/dev/null 2>&1; then       
+        # Determinar la urgencia según el tipo (nunca usar "low")
+        local urgencia="normal"  # Valor por defecto cambiado de "low" a "normal"
+        local icono="dialog-information"
+        case "$tipo" in
+            error) 
+                urgencia="critical"
+                icono="dialog-error"
+                ;;
+            warning) 
+                urgencia="normal" 
+                icono="dialog-warning"
+                ;;
+            # info ya usa "normal" por defecto
+        esac
+        
+        notify-send --urgency="$urgencia" --icon="$icono" "$titulo" "$mensaje"
+    
+    # Para sistemas macOS
+    elif command -v osascript >/dev/null 2>&1; then
+        osascript -e "display notification \"$mensaje\" with title \"$titulo\""
+    
+    # Fallback para terminal
+    else
+        echo -e "\n🔔 $titulo: $mensaje"
+    fi
+}
+
+# Función para notificar finalización
+notificar_finalizacion() {
+    local exit_code=$1
+    
+    # Pequeña pausa para asegurar que todas las operaciones previas han terminado
+    sleep 0.5
+    
+    if [ $exit_code -eq 0 ]; then
+        enviar_notificacion "Sincronización Completada" \
+            "Sincronización finalizada con éxito\n• Elementos: $ARCHIVOS_SINCRONIZADOS\n• Transferidos: $ARCHIVOS_TRANSFERIDOS\n• Tiempo: ${SECONDS}s" \
+            "info"
+    else
+        enviar_notificacion "Sincronización con Errores" \
+            "Sincronización finalizada con errores\n• Errores: $ERRORES_SINCRONIZACION\n• Verifique el log: $LOG_FILE" \
+            "error"
+    fi
+}
+
 # Función para obtener información del proceso dueño del lock
 obtener_info_proceso_lock() {
     local pid=$1
@@ -1515,6 +1568,9 @@ eliminar_lock_final
 
 echo ""
 mostrar_estadísticas
+
+# Enviar notificación de finalización
+notificar_finalizacion $exit_code
 
 # Mantener el log del resumen en el archivo de log también
 {
