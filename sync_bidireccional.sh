@@ -1197,7 +1197,7 @@ sincronizar() {
     local exit_code=0
 
     log_debug "Iniciando proceso de sincronización en modo: $MODO"
-    mostrar_banner
+    #mostrar_banner
     
     # Verificar si pCloud está montado antes de continuar
     verificar_pcloud_montado
@@ -1518,6 +1518,8 @@ while [[ $# -gt 0 ]]; do
             log_error "Opción desconocida: $1"; mostrar_ayuda; exit 1;;
     esac
 done
+
+mostrar_banner
 
 # Establecer locking (si llegamos aquí, no es modo ayuda)
 if ! establecer_lock; then
