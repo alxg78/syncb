@@ -278,14 +278,12 @@ mostrar_ayuda() {
     echo "  sync_bidireccional.sh --bajar --dry-run"
     echo "  sync_bidireccional.sh --subir --delete --yes"
     echo "  sync_bidireccional.sh --subir --item documentos/"
-    echo "  sync_bidireccional.sh --bajar --item configuracion.ini --dry-run"
-    echo "  sync_bidireccional.sh --bajar --backup-dir --yes"
+    echo "  sync_bidireccional.sh --bajar --item configuracion.ini --item .local/bin --dry-run"
     echo "  sync_bidireccional.sh --bajar --backup-dir --item documentos/ --yes"
     echo "  sync_bidireccional.sh --subir --exclude '*.tmp' --exclude 'temp/'"
     echo "  sync_bidireccional.sh --subir --overwrite     # Sobrescribe todos los archivos"
     echo "  sync_bidireccional.sh --subir --bwlimit 1000  # Sincronizar subiendo con límite de 1MB/s" 
     echo "  sync_bidireccional.sh --subir --verbose       # Sincronizar con output verboso"
-    echo "  sync_bidireccional.sh --bajar --verbose --dry-run  # Simular bajada con output verboso"
     echo "  sync_bidireccional.sh --bajar --item Documentos/ --timeout 10  # Timeout corto de 10 minutos para una operación rápida"
     echo "  sync_bidireccional.sh --force-unlock   # Forzar desbloqueo si hay un lock obsoleto"
     echo "  sync_bidireccional.sh --test           # Ejecutar tests unitarios"
@@ -411,11 +409,11 @@ mostrar_banner() {
         echo "MODO: SEGURO (--update activado)"
     fi
 
-if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
-    echo "ELEMENTOS ESPECÍFICOS: ${ITEMS_ESPECIFICOS[*]}"
-else
-    echo "LISTA: ${LISTA_SINCRONIZACION:-No encontrada}"
-fi
+	if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
+		echo "ELEMENTOS ESPECÍFICOS: ${ITEMS_ESPECIFICOS[*]}"
+	else
+		echo "LISTA: ${LISTA_SINCRONIZACION:-No encontrada}"
+	fi
 
     echo "EXCLUSIONES: ${EXCLUSIONES:-No encontradas}"
     
@@ -791,35 +789,35 @@ generar_archivo_enlaces() {
 		done < <(find "$dir" -type l -print0 2>/dev/null)
 	}
 
-  if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
-      for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
-          local ruta_completa="${LOCAL_DIR}/${elemento}"
-          log_debug "Buscando enlaces para elemento específico: $ruta_completa"
-          if [ -L "$ruta_completa" ]; then
-              registrar_enlace "$ruta_completa"
-          elif [ -d "$ruta_completa" ]; then
-              buscar_enlaces_en_directorio "$ruta_completa"
-          fi
-      done
-  else
-      while IFS= read -r elemento || [ -n "$elemento" ]; do
-          log_debug "Procesando elemento de la lista: $elemento"
-          [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]] || continue
-          
-          # Validación de seguridad adicional
-          if [[ "$elemento" == *".."* ]]; then
-              log_error "Elemento contiene '..' - posible path traversal: $elemento"
-              continue
-          fi
-          
-          local ruta_completa="${LOCAL_DIR}/${elemento}"
-          if [ -L "$ruta_completa" ]; then
-              registrar_enlace "$ruta_completa"
-          elif [ -d "$ruta_completa" ]; then
-              buscar_enlaces_en_directorio "$ruta_completa"
-          fi
-      done < "$LISTA_SINCRONIZACION"
-  fi
+	if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
+	  for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
+		  local ruta_completa="${LOCAL_DIR}/${elemento}"
+		  log_debug "Buscando enlaces para elemento específico: $ruta_completa"
+		  if [ -L "$ruta_completa" ]; then
+		      registrar_enlace "$ruta_completa"
+		  elif [ -d "$ruta_completa" ]; then
+		      buscar_enlaces_en_directorio "$ruta_completa"
+		  fi
+	  done
+	else
+	  while IFS= read -r elemento || [ -n "$elemento" ]; do
+		  log_debug "Procesando elemento de la lista: $elemento"
+		  [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]] || continue
+		  
+		  # Validación de seguridad adicional
+		  if [[ "$elemento" == *".."* ]]; then
+		      log_error "Elemento contiene '..' - posible path traversal: $elemento"
+		      continue
+		  fi
+		  
+		  local ruta_completa="${LOCAL_DIR}/${elemento}"
+		  if [ -L "$ruta_completa" ]; then
+		      registrar_enlace "$ruta_completa"
+		  elif [ -d "$ruta_completa" ]; then
+		      buscar_enlaces_en_directorio "$ruta_completa"
+		  fi
+	  done < "$LISTA_SINCRONIZACION"
+	fi
 
     if [ -s "$archivo_enlaces" ]; then
         log_debug "Sincronizando archivo de enlaces a pCloud..."
@@ -1433,12 +1431,12 @@ while [[ $# -gt 0 ]]; do
             DELETE=1; shift;;
         --dry-run)
             DRY_RUN=1; shift;;
-	--item)
-    	    [ -z "$2" ] && { log_error "--item requiere un argumento"; exit 1; }
-            ITEMS_ESPECIFICOS+=("$2"); shift 2;;
-	--exclude)
-            [ -z "$2" ] && { log_error "--exclude requiere un patrón"; exit 1; }
-            EXCLUSIONES_CLI+=("$2"); shift 2;;
+		--item)
+				[ -z "$2" ] && { log_error "--item requiere un argumento"; exit 1; }
+				ITEMS_ESPECIFICOS+=("$2"); shift 2;;
+		--exclude)
+				[ -z "$2" ] && { log_error "--exclude requiere un patrón"; exit 1; }
+				EXCLUSIONES_CLI+=("$2"); shift 2;;
         --yes)
             YES=1; shift;;
         --backup-dir)
