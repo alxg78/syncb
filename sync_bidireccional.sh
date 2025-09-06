@@ -786,103 +786,106 @@ print_rsync_command() {
 # =========================
 # ENLACES SIMBÓLICOS
 # =========================
-# Función para generar archivo de enlaces simbólicos
+# Función para registrar un enlace individual
+registrar_enlace() {
+    local enlace="$1"
+    local archivo_enlaces="$2"
+
+    log_debug "Procesando enlace: $enlace"
+    # Solo enlaces simbólicos
+    [ -L "$enlace" ] || return
+
+    # Columna 1: ruta del ENLACE relativa a $HOME
+    local ruta_relativa="$enlace"
+    if [[ "$ruta_relativa" == "$LOCAL_DIR/"* ]]; then
+        ruta_relativa="${ruta_relativa#${LOCAL_DIR}/}"
+    else
+        ruta_relativa="${ruta_relativa#/}"
+    fi
+
+    # Columna 2: destino tal cual fue creado el enlace
+    local destino
+    destino="$(readlink "$enlace" 2>/dev/null || true)"
+
+    # Validaciones: no escribir líneas incompletas
+    if [ -z "$ruta_relativa" ] || [ -z "$destino" ]; then
+        log_debug "Enlace no válido o vacío: $enlace"
+        log_warn "Enlace no válido u origen/destino vacío: $enlace"
+        return
+    fi
+
+    # Normalización del destino
+    if [[ "$destino" == "$HOME"* ]]; then
+        destino="/home/\$USERNAME${destino#$HOME}"
+    elif [[ "$destino" == /home/* ]]; then
+        local _tmp="${destino#/home/}"
+        if [[ "$_tmp" == */* ]]; then
+            local _rest="${_tmp#*/}"
+            destino="/home/\$USERNAME/${_rest}"
+        else
+            destino="/home/\$USERNAME"
+        fi
+    fi
+
+    printf "%s\t%s\n" "$ruta_relativa" "$destino" >> "$archivo_enlaces"
+    log_debug "Registrado enlace: $ruta_relativa -> $destino"
+    log_info "Registrado enlace: $ruta_relativa -> $destino"
+    ENLACES_DETECTADOS=$((ENLACES_DETECTADOS + 1))
+}
+
+# Función para buscar enlaces en un directorio
+buscar_enlaces_en_directorio() {
+    local dir="$1"
+    local archivo_enlaces="$2"
+    
+    [ -d "$dir" ] || return
+    log_debug "Buscando enlaces en directorio: $dir"
+    
+    while IFS= read -r -d '' enlace; do
+        registrar_enlace "$enlace" "$archivo_enlaces"
+    done < <(find "$dir" -type l -print0 2>/dev/null)
+}
+
+# Función principal para generar archivo de enlaces
 generar_archivo_enlaces() {
     local archivo_enlaces="$1"
     local PCLOUD_DIR
     PCLOUD_DIR=$(get_pcloud_dir)
 
     log_debug "Generando archivo de enlaces: $archivo_enlaces"
-
     log_info "Generando archivo de enlaces simbólicos..."
+    
     : > "$archivo_enlaces"
 
-  registrar_enlace() {
-		local enlace="$1"
-
-		log_debug "Procesando enlace: $enlace"
-		# Solo enlaces simbólicos
-		[ -L "$enlace" ] || return
-
-		# Columna 1: ruta del ENLACE relativa a $HOME sin usar realpath (no romper enlaces rotos/relativos)
-		local ruta_relativa="$enlace"
-		if [[ "$ruta_relativa" == "$LOCAL_DIR/"* ]]; then
-			ruta_relativa="${ruta_relativa#${LOCAL_DIR}/}"
-		else
-			ruta_relativa="${ruta_relativa#/}"
-		fi
-
-		# Columna 2: destino tal cual fue creado el enlace (puede ser relativo)
-		local destino
-		destino="$(readlink "$enlace" 2>/dev/null || true)"
-
-		# Validaciones: no escribir líneas incompletas
-		if [ -z "$ruta_relativa" ] || [ -z "$destino" ]; then
-		    log_debug "Enlace no válido o vacío: $enlace"
-			log_warn "enlace no válido u origen/destino vacío: $enlace"
-			return
-		fi
-
-		# Si el destino empieza por $HOME (p.e. /home/jheras/...), lo sustituimos por /home/$USERNAME/...
-		if [[ "$destino" == "$HOME"* ]]; then
-			destino="/home/\$USERNAME${destino#$HOME}"
-		# Si el destino es otra /home/<otrousuario>/..., también lo convertimos a /home/$USERNAME/... 
-		elif [[ "$destino" == /home/* ]]; then
-			local _tmp="${destino#/home/}"   # quita el prefijo '/home/'
-			if [[ "$_tmp" == */* ]]; then
-				local _rest="${_tmp#*/}"     # quita el username restante
-				destino="/home/\$USERNAME/${_rest}"
-			else
-				destino="/home/\$USERNAME"
-			fi
-		fi
-		# -------------------------------------------------------------------------
-
-		printf "%s\t%s\n" "$ruta_relativa" "$destino" >> "$archivo_enlaces"
-		log_debug "Registrado enlace: $ruta_relativa -> $destino"
-		log_info "Registrado enlace: $ruta_relativa -> $destino"
-		ENLACES_DETECTADOS=$((ENLACES_DETECTADOS + 1))
-    }
-
-    buscar_enlaces_en_directorio() {
-		local dir="$1"
-		[ -d "$dir" ] || return
-		log_debug "Buscando enlaces en directorio: $dir"
-		# Usar redirección < <(...) para que el while se ejecute en el shell principal
-		while IFS= read -r -d '' enlace; do
-		    registrar_enlace "$enlace"
-		done < <(find "$dir" -type l -print0 2>/dev/null)
-	}
-
-	if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
-	  for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
-		  local ruta_completa="${LOCAL_DIR}/${elemento}"
-		  log_debug "Buscando enlaces para elemento específico: $ruta_completa"
-		  if [ -L "$ruta_completa" ]; then
-		      registrar_enlace "$ruta_completa"
-		  elif [ -d "$ruta_completa" ]; then
-		      buscar_enlaces_en_directorio "$ruta_completa"
-		  fi
-	  done
-	else
-	  while IFS= read -r elemento || [ -n "$elemento" ]; do
-		  log_debug "Procesando elemento de la lista: $elemento"
-		  [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]] || continue
-		  
-		  # Validación de seguridad adicional
-		  if [[ "$elemento" == *".."* ]]; then
-		      log_error "Elemento contiene '..' - posible path traversal: $elemento"
-		      continue
-		  fi
-		  
-		  local ruta_completa="${LOCAL_DIR}/${elemento}"
-		  if [ -L "$ruta_completa" ]; then
-		      registrar_enlace "$ruta_completa"
-		  elif [ -d "$ruta_completa" ]; then
-		      buscar_enlaces_en_directorio "$ruta_completa"
-		  fi
-	  done < "$LISTA_SINCRONIZACION"
-	fi
+    if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
+        for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
+            local ruta_completa="${LOCAL_DIR}/${elemento}"
+            log_debug "Buscando enlaces para elemento específico: $ruta_completa"
+            
+            if [ -L "$ruta_completa" ]; then
+                registrar_enlace "$ruta_completa" "$archivo_enlaces"
+            elif [ -d "$ruta_completa" ]; then
+                buscar_enlaces_en_directorio "$ruta_completa" "$archivo_enlaces"
+            fi
+        done
+    else
+        while IFS= read -r elemento || [ -n "$elemento" ]; do
+            [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]] || continue
+            
+            # Validación de seguridad adicional
+            if [[ "$elemento" == *".."* ]]; then
+                log_error "Elemento contiene '..' - posible path traversal: $elemento"
+                continue
+            fi
+            
+            local ruta_completa="${LOCAL_DIR}/${elemento}"
+            if [ -L "$ruta_completa" ]; then
+                registrar_enlace "$ruta_completa" "$archivo_enlaces"
+            elif [ -d "$ruta_completa" ]; then
+                buscar_enlaces_en_directorio "$ruta_completa" "$archivo_enlaces"
+            fi
+        done < "$LISTA_SINCRONIZACION"
+    fi
 
     if [ -s "$archivo_enlaces" ]; then
         log_debug "Sincronizando archivo de enlaces a pCloud..."
