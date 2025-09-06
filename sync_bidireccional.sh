@@ -570,6 +570,7 @@ mostrar_estadísticas() {
     [ $DELETE -eq 1 ] && echo "Archivos borrados: $ARCHIVOS_BORRADOS"
     [ ${#EXCLUSIONES_CLI[@]} -gt 0 ] && echo "Exclusiones CLI aplicadas: ${#EXCLUSIONES_CLI[@]}"
     echo "Enlaces manejados: $((ENLACES_CREADOS + ENLACES_EXISTENTES))"
+    echo "  - Enlaces detectados/guardados: $ENLACES_DETECTADOS"    
     echo "  - Enlaces creados: $ENLACES_CREADOS"
     echo "  - Enlaces existentes: $ENLACES_EXISTENTES"
     echo "  - Enlaces con errores: $ENLACES_ERRORES"
