@@ -1217,7 +1217,7 @@ sincronizar() {
 		log_info "Sincronizando ${#ITEMS_ESPECIFICOS[@]} elementos específicos"
 		for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
 		resolver_item_relativo "$elemento"
-		#log_info "Sincronizando elemento específico: $REL_ITEM"
+		log_debug "Sincronizando elemento específico: $REL_ITEM"
 		sincronizar_elemento "$REL_ITEM" || exit_code=1
 		echo "------------------------------------------"
 		done
