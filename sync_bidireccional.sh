@@ -1394,7 +1394,7 @@ sincronizar_elemento() {
         log_info "SIMULACIÓN: Se crearía directorio: $dir_destino"
     fi
 
-    log_info "Sincronizando: $elemento ($direccion)"
+    log_info "${BLUE}Sincronizando: $elemento ($direccion)${NC}"
 
     # Construir y validar opciones de rsync
     construir_opciones_rsync
