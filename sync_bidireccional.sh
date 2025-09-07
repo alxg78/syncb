@@ -1217,6 +1217,49 @@ recrear_enlaces_desde_archivo() {
 # =========================
 resolver_item_relativo() {
     local item="$1"
+    REL_ITEM=""
+    
+    if [[ -z "$item" ]]; then
+        log_error "Elemento vacío recibido"
+        return 1
+    fi
+    
+    # Detectar path traversal y caracteres peligrosos
+    if [[ "$item" =~ (^|/)\.\.(/|$) ]] || [[ "$item" =~ ^\.\./ ]] || [[ "$item" =~ /\.\.$ ]]; then
+        log_error "Path traversal detectado: $item"
+        return 1
+    fi
+    
+    if [[ "$item" = /* ]]; then
+        if [[ "$item" == "$LOCAL_DIR/"* ]]; then
+            REL_ITEM="${item#${LOCAL_DIR}/}"
+        else
+            log_error "--item apunta fuera de \$HOME: $item"
+            return 1
+        fi
+    else
+        REL_ITEM="$item"
+    fi
+    
+    # Validación de seguridad adicional
+    local REL_ITEM_ABS
+    if [[ "$REL_ITEM" = /* ]]; then
+        REL_ITEM_ABS="$REL_ITEM"
+    else
+        REL_ITEM_ABS="${LOCAL_DIR}/${REL_ITEM}"
+    fi
+
+    REL_ITEM_ABS=$(normalize_path "$REL_ITEM_ABS")
+
+    if [[ "$REL_ITEM_ABS" != "$LOCAL_DIR"* ]]; then
+        log_error "--item apunta fuera de \$HOME o contiene path traversal: $REL_ITEM_ABS"
+        return 1
+    fi
+
+    return 0
+}
+resolver_item_relativo1() {
+    local item="$1"
     
     if [[ -z "$item" ]]; then
         REL_ITEM=""
