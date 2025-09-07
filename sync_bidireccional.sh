@@ -879,11 +879,17 @@ obtener_info_proceso_lock() {
 establecer_lock() {
     if [ -f "$LOCK_FILE" ]; then
         log_debug "Archivo de lock encontrado: $LOCK_FILE"
-
         local lock_pid=$(head -n 1 "$LOCK_FILE" 2>/dev/null)
+        local lock_time=$(stat -c %Y "$LOCK_FILE" 2>/dev/null || stat -f %m "$LOCK_FILE" 2>/dev/null)
+        local current_time=$(date +%s)
+        local lock_age=$((current_time - lock_time))
         
-        if ps -p "$lock_pid" > /dev/null 2>&1; then
+        if [ $lock_age -gt $LOCK_TIMEOUT ]; then
+            log_warn "Eliminando lock obsoleto (edad: ${lock_age}s > timeout: ${LOCK_TIMEOUT}s)"
+            rm -f "$LOCK_FILE"
+        elif ps -p "$lock_pid" > /dev/null 2>&1; then
             log_error "Ya hay una ejecución en progreso (PID: $lock_pid)"
+            log_error "$(obtener_info_proceso_lock $lock_pid)"
             return 1
         else
             log_warn "Eliminando lock obsoleto del proceso $lock_pid"
@@ -891,7 +897,20 @@ establecer_lock() {
         fi
     fi
     
-    echo $$ > "$LOCK_FILE"
+    if ! echo $$ > "$LOCK_FILE"; then
+        log_error "No se pudo crear el archivo de lock: $LOCK_FILE"
+        return 1
+    fi
+    
+    # Añadir información adicional al lock file
+    {
+        echo "PID: $$"
+        echo "Fecha: $(date)"
+        echo "Modo: $MODO"
+        echo "Usuario: $(whoami)"
+        echo "Hostname: $(hostname)"
+    } >> "$LOCK_FILE"
+    
     log_debug "Lock establecido para PID: $$"
     log_info "Lock establecido: $LOCK_FILE"
     return 0
