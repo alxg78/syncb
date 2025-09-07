@@ -9,11 +9,11 @@ fi
 set -uo pipefail
 IFS=$'\n\t'
 
-# Script: sync_bidireccional.sh
+# Script: syncb.sh
 # Descripción: Sincronización bidireccional entre directorio local y pCloud
 # Uso: 
-#   Subir: ./sync_bidireccional.sh --subir [--delete] [--dry-run] [--item elemento] [--yes] [--overwrite]
-#   Bajar: ./sync_bidireccional.sh --bajar [--delete] [--dry-run] [--item elemento] [--yes] [--backup-dir] [--overwrite]
+#   Subir: ./syncb.sh --subir [--delete] [--dry-run] [--item elemento] [--yes] [--overwrite]
+#   Bajar: ./syncb.sh --bajar [--delete] [--dry-run] [--item elemento] [--yes] [--backup-dir] [--overwrite]
 
 # =========================
 # Configuración (ajusta a tu entorno)
@@ -42,17 +42,17 @@ HOSTNAME_RTVA="feynman.rtva.dnf"
 # Archivos de configuración (buscar en el directorio del script primero, luego en el directorio actual)
 LISTA_SINCRONIZACION=""
 EXCLUSIONES=""
-LOG_FILE="$HOME/sync_bidireccional.log"
+LOG_FILE="$HOME/syncb.log"
 
 # Nombre de los archivos de configuración de directorios (globales)
-LISTA_POR_DEFECTO_FILE="sync_bidireccional_directorios.ini"
-LISTA_ESPECIFICA_POR_DEFECTO_FILE="sync_bidireccional_directorios_${HOSTNAME_RTVA}.ini"
+LISTA_POR_DEFECTO_FILE="syncb_directorios.ini"
+LISTA_ESPECIFICA_POR_DEFECTO_FILE="syncb_directorios_${HOSTNAME_RTVA}.ini"
 
 # Nombre del archivo de exclusiones
-EXCLUSIONES_FILE="sync_bidireccional_exclusiones.ini"
+EXCLUSIONES_FILE="syncb_exclusiones.ini"
 
 # Enlaces simbólicos en la subida, origen
-SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"
+SYMLINKS_FILE=".syncb_symlinks.meta"
 
 # Variables de control
 MODO=""
@@ -81,7 +81,7 @@ declare -i ARCHIVOS_BORRADOS=0
 SECONDS=0
 
 # Configuración de locking
-LOCK_FILE="${TMPDIR:-/tmp}/sync_bidireccional.lock"
+LOCK_FILE="${TMPDIR:-/tmp}/syncb.lock"
 LOCK_TIMEOUT=3600  # Tiempo máximo de bloqueo en segundos (1 hora)
 
 # Temp files to cleanup
@@ -328,19 +328,19 @@ mostrar_ayuda() {
     echo "Hostname detectado: ${HOSTNAME}" >&2
     echo ""
     echo "Ejemplos:"
-    echo "  sync_bidireccional.sh --subir"
-    echo "  sync_bidireccional.sh --bajar --dry-run"
-    echo "  sync_bidireccional.sh --subir --delete --yes"
-    echo "  sync_bidireccional.sh --subir --item documentos/"
-    echo "  sync_bidireccional.sh --bajar --item configuracion.ini --item .local/bin --dry-run"
-    echo "  sync_bidireccional.sh --bajar --backup-dir --item documentos/ --yes"
-    echo "  sync_bidireccional.sh --subir --exclude '*.tmp' --exclude 'temp/'"
-    echo "  sync_bidireccional.sh --subir --overwrite     # Sobrescribe todos los archivos"
-    echo "  sync_bidireccional.sh --subir --bwlimit 1000  # Sincronizar subiendo con límite de 1MB/s" 
-    echo "  sync_bidireccional.sh --subir --verbose       # Sincronizar con output verboso"
-    echo "  sync_bidireccional.sh --bajar --item Documentos/ --timeout 10  # Timeout corto de 10 minutos para una operación rápida"
-    echo "  sync_bidireccional.sh --force-unlock   # Forzar desbloqueo si hay un lock obsoleto"
-    echo "  sync_bidireccional.sh --test           # Ejecutar tests unitarios"
+    echo "  syncb.sh --subir"
+    echo "  syncb.sh --bajar --dry-run"
+    echo "  syncb.sh --subir --delete --yes"
+    echo "  syncb.sh --subir --item documentos/"
+    echo "  syncb.sh --bajar --item configuracion.ini --item .local/bin --dry-run"
+    echo "  syncb.sh --bajar --backup-dir --item documentos/ --yes"
+    echo "  syncb.sh --subir --exclude '*.tmp' --exclude 'temp/'"
+    echo "  syncb.sh --subir --overwrite     # Sobrescribe todos los archivos"
+    echo "  syncb.sh --subir --bwlimit 1000  # Sincronizar subiendo con límite de 1MB/s" 
+    echo "  syncb.sh --subir --verbose       # Sincronizar con output verboso"
+    echo "  syncb.sh --bajar --item Documentos/ --timeout 10  # Timeout corto de 10 minutos para una operación rápida"
+    echo "  syncb.sh --force-unlock   # Forzar desbloqueo si hay un lock obsoleto"
+    echo "  syncb.sh --test           # Ejecutar tests unitarios"
 }
 
 # Función para procesar argumentos de línea de comandos
@@ -1541,7 +1541,7 @@ manejar_enlaces_simbolicos() {
     
     if [ "$MODO" = "subir" ]; then
         log_debug "Creando archivo temporal para enlaces"
-        tmp_links=$(mktemp --tmpdir sync_links.XXXXXX)
+        tmp_links=$(mktemp --tmpdir syncb_links.XXXXXX)
         chmod 600 "$tmp_links"
         TEMP_FILES+=("$tmp_links")
         

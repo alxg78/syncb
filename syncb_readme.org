@@ -1,4 +1,4 @@
-#+TITLE: sync_bidireccional.sh - Sincronización Bidireccional con pCloud
+#+TITLE: syncb.sh - Sincronización Bidireccional con pCloud
 #+AUTHOR: Automático
 #+DATE: Generado el $(date +%Y-%m-%d)
 
@@ -38,7 +38,7 @@ Script avanzado de sincronización bidireccional entre directorio local y pCloud
 1. Guardar el script en un directorio del PATH
 2. Hacer ejecutable:
    #+BEGIN_SRC shell
-   chmod +x sync_bidireccional.sh
+   chmod +x syncb.sh
    #+END_SRC
 3. Configurar los archivos de configuración (ver sección Configuración)
 4. Configurar variables de entorno si es necesario (PCLOUD_MOUNT_POINT, LOCAL_DIR, LOG_FILE)
@@ -48,23 +48,23 @@ Script avanzado de sincronización bidireccional entre directorio local y pCloud
 ** Archivos de Configuración
 El script busca estos archivos en el directorio del script o directorio actual:
 
-- ~sync_bidireccional_directorios.ini~ :: Lista principal de elementos a sincronizar
-- ~sync_bidireccional_directorios_<hostname>.ini~ :: Configuración específica por host
-- ~sync_bidireccional_exclusiones.ini~ :: Patrones de exclusión para rsync
+- ~syncb_directorios.ini~ :: Lista principal de elementos a sincronizar
+- ~syncb_directorios_<hostname>.ini~ :: Configuración específica por host
+- ~syncb_exclusiones.ini~ :: Patrones de exclusión para rsync
 
 ** Variables de Entorno
 El script usa estas variables configurables:
 
 - ~PCLOUD_MOUNT_POINT~ :: Punto de montaje de pCloud (por defecto: ~$HOME/pCloudDrive~)
 - ~LOCAL_DIR~ :: Directorio local a sincronizar (por defecto: ~$HOME~)
-- ~LOG_FILE~ :: Archivo de log (por defecto: ~$HOME/sync_bidireccional.log~)
+- ~LOG_FILE~ :: Archivo de log (por defecto: ~$HOME/syncb.log~)
 - ~HOSTNAME_RTVA~ :: Nombre de host específico para configuración especial (por defecto: feynman.rtva.dnf)
 
 * Uso
 
 ** Sintaxis Básica
 #+BEGIN_SRC shell
-sync_bidireccional.sh [--subir|--bajar] [OPCIONES]
+syncb.sh [--subir|--bajar] [OPCIONES]
 #+END_SRC
 
 ** Opciones Principales
@@ -92,56 +92,56 @@ sync_bidireccional.sh [--subir|--bajar] [OPCIONES]
 *** Sincronización normal
 #+BEGIN_SRC shell
 # Subir cambios a pCloud
-sync_bidireccional.sh --subir
+syncb.sh --subir
 
 # Bajar cambios desde pCloud
-sync_bidireccional.sh --bajar
+syncb.sh --bajar
 #+END_SRC
 
 *** Sincronización con eliminación
 #+BEGIN_SRC shell
 # Subir y eliminar archivos obsoletos
-sync_bidireccional.sh --subir --delete --yes
+syncb.sh --subir --delete --yes
 #+END_SRC
 
 *** Sincronización de elemento específico
 #+BEGIN_SRC shell
 # Sincronizar solo un directorio específico
-sync_bidireccional.sh --subir --item Documentos/ --dry-run
+syncb.sh --subir --item Documentos/ --dry-run
 #+END_SRC
 
 *** Sincronización con límites
 #+BEGIN_SRC shell
 # Con límite de velocidad y tiempo
-sync_bidireccional.sh --bajar --bwlimit 1000 --timeout 10
+syncb.sh --bajar --bwlimit 1000 --timeout 10
 #+END_SRC
 
 *** Sincronización con exclusión de patrones
 #+BEGIN_SRC shell
 # Excluir archivos temporales y directorio temp
-sync_bidireccional.sh --subir --exclude '*.tmp' --exclude 'temp/'
+syncb.sh --subir --exclude '*.tmp' --exclude 'temp/'
 #+END_SRC
 
 *** Sincronización forzada
 #+BEGIN_SRC shell
 # Sobrescribir todos los archivos y usar checksum
-sync_bidireccional.sh --subir --overwrite --checksum
+syncb.sh --subir --overwrite --checksum
 #+END_SRC
 
 *** Forzar desbloqueo
 #+BEGIN_SRC shell
 # Eliminar lock de ejecución previa
-sync_bidireccional.sh --force-unlock
+syncb.sh --force-unlock
 #+END_SRC
 
 *** Ejecutar tests
 #+BEGIN_SRC shell
 # Ejecutar tests unitarios
-sync_bidireccional.sh --test
+syncb.sh --test
 #+END_SRC
 
 * Manejo de Enlaces Simbólicos
-El script gestiona enlaces simbólicos mediante un archivo metadato (~.sync_bidireccional_symlinks.meta~) que:
+El script gestiona enlaces simbólicos mediante un archivo metadato (~.syncb_symlinks.meta~) que:
 1. Se crea durante la subida con información de enlaces
 2. Se usa durante la bajada para recrear enlaces
 
@@ -162,14 +162,14 @@ El script envía notificaciones del sistema al finalizar:
 
 * Sistema de Locking
 El script implementa locking para prevenir ejecuciones simultáneas:
-- Lock file: ~/tmp/sync_bidireccional.lock~
+- Lock file: ~/tmp/syncb.lock~
 - Timeout automático: 1 hora
 - Forzar desbloqueo: ~--force-unlock~
 - Información detallada del proceso dueño del lock
 - Eliminación automática de locks obsoletos
 
 * Logging y Monitoreo
-- Log principal: ~$HOME/sync_bidireccional.log~
+- Log principal: ~$HOME/syncb.log~
 - Rotación automática al alcanzar 10MB
 - Formatos de mensaje coloreados en terminal
 - Estadísticas detalladas al finalizar
@@ -185,7 +185,7 @@ Verificar que pCloud Drive esté instalado y montado en ~$HOME/pCloudDrive~
 ** Error: Lock existente
 #+BEGIN_SRC shell
 # Forzar eliminación de lock
-sync_bidireccional.sh --force-unlock
+syncb.sh --force-unlock
 #+END_SRC
 
 ** Error: Espacio insuficiente
@@ -196,7 +196,7 @@ El script verifica conectividad con pCloud. Si falla, se muestra advertencia.
 
 ** Modo verboso para debugging
 #+BEGIN_SRC shell
-sync_bidireccional.sh --subir --verbose --dry-run
+syncb.sh --subir --verbose --dry-run
 #+END_SRC
 
 ** Error: Path traversal detectado
@@ -206,13 +206,13 @@ Verificar que los elementos en la lista de sincronización no contengan ~..~
 ** Error: Tiempo excedido en operación
 #+BEGIN_SRC shell
 # Aumentar timeout o investigar rendimiento
-sync_bidireccional.sh --bajar --timeout 60
+syncb.sh --bajar --timeout 60
 #+END_SRC
 
 * Tests Unitarios
 Ejecutar tests de validación:
 #+BEGIN_SRC shell
-sync_bidireccional.sh --test
+syncb.sh --test
 #+END_SRC
  
 Los tests verifican:
@@ -261,6 +261,6 @@ Para problemas o mejoras, contactar con el mantenedor del script.
 ** Depuración avanzada
 Para debugging detallado, ejecutar con modo verboso:
 #+BEGIN_SRC shell
-sync_bidireccional.sh --subir --verbose 2>&1 | tee debug.log
+syncb.sh --subir --verbose 2>&1 | tee debug.log
 #+END_SRC
 
