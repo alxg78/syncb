@@ -190,13 +190,30 @@ get_pcloud_dir() {
 
 # Función para verificar conectividad con pCloud
 verificar_conectividad_pcloud() {
-    if command -v curl >/dev/null 2>&1; then
-        if ! timeout 5s curl -s https://www.pcloud.com/ > /dev/null; then
-            log_warn "No se pudo conectar a pCloud. Verifica tu conexión a Internet."
-        fi
-    else
+    log_debug "Verificando conectividad con pCloud..."
+    
+    if ! command -v curl >/dev/null 2>&1; then
         log_warn "curl no disponible, omitiendo verificación de conectividad"
+        return 0
     fi
+    
+    local max_retries=3
+    local timeout=5
+    local retry_count=0
+    
+    while [ $retry_count -lt $max_retries ]; do
+        if timeout ${timeout}s curl -s https://www.pcloud.com/ > /dev/null; then
+            log_info "Verificación de conectividad pCloud: OK"
+            return 0
+        fi
+        retry_count=$((retry_count + 1))
+        log_warn "Intento $retry_count/$max_retries: No se pudo conectar a pCloud"
+        sleep 1
+    done
+    
+    log_error "No se pudo conectar a pCloud después de $max_retries intentos"
+    log_info "Verifica tu conexión a Internet y que pCloud esté disponible"
+    return 1
 }
 
 # Buscar archivos de configuración
