@@ -1258,51 +1258,6 @@ resolver_item_relativo() {
 
     return 0
 }
-resolver_item_relativo1() {
-    local item="$1"
-    
-    if [[ -z "$item" ]]; then
-        REL_ITEM=""
-        return
-    fi
-    
-	# Detectar varios patrones de path traversal
-	if [[ "$item" =~ (^|/)\.\.(/|$) ]] || [[ "$item" =~ ^\.\./ ]] || [[ "$item" =~ /\.\.$ ]]; then
-		log_error "Path traversal detectado: $item"
-		exit 1
-	fi
-    
-    if [[ "$item" = /* ]]; then
-        if [[ "$item" == "$LOCAL_DIR/"* ]]; then
-            REL_ITEM="${item#${LOCAL_DIR}/}"
-        else
-            log_error "--item apunta fuera de \$HOME: $item"
-            exit 1
-        fi
-    else
-        REL_ITEM="$item"
-    fi
-    
-    # Validación de seguridad: evitar path traversal
-    # Normalizar y validar ruta relativa
-	# Si REL_ITEM es absoluta, no tocar; si es relativa, concatenar LOCAL_DIR
-	if [[ "$REL_ITEM" = /* ]]; then
-		REL_ITEM_ABS="$REL_ITEM"
-	else
-		REL_ITEM_ABS="${LOCAL_DIR}/${REL_ITEM}"
-	fi
-
-	# Normalizar
-	REL_ITEM_ABS=$(normalize_path "$REL_ITEM_ABS")
-
-	# Validar que esté dentro de LOCAL_DIR (o HOME según corresponda)
-	if [[ "$REL_ITEM_ABS" != "$LOCAL_DIR"* ]]; then
-		log_error "--item apunta fuera de \$HOME o contiene path traversal: $REL_ITEM_ABS"
-		log_debug "Ruta absoluta del item fuera de LOCAL_DIR: $REL_ITEM_ABS"
-		exit 1
-	fi
-
-}
 
 # Función para sincronizar un elemento
 # ---------------------------------------------------
@@ -1895,9 +1850,5 @@ notificar_finalizacion $exit_code
     echo "=========================================="
 } >> "$LOG_FILE"
 
-exit $exit_code# Añadir esta verificación antes de iniciar la sincronización
-if ! verificar_elementos_configuracion; then
-    log_error "Error en la configuración. Ejecución abortada."
-    eliminar_lock
-    exit 1
-fi
+exit $exit_code 
+
