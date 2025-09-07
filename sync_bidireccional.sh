@@ -1091,7 +1091,12 @@ generar_archivo_enlaces() {
         log_info "Sincronizando archivo de enlaces..."
         construir_opciones_rsync
         validate_rsync_opts || { log_error "Abortando: RSYNC_OPTS inválido"; return 1; }
-        print_rsync_command "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"
+        
+		# Imprimir comando de forma segura, si estamos en modo debugg
+		if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
+			print_rsync_command "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"
+		fi
+    
         if rsync "${RSYNC_OPTS[@]}" "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"; then
             log_info "Enlaces detectados/guardados en meta: $ENLACES_DETECTADOS"
             log_success "Archivo de enlaces sincronizado"
@@ -1399,6 +1404,11 @@ sincronizar_elemento() {
     # Construir y validar opciones de rsync
     construir_opciones_rsync
     validate_rsync_opts || { log_error "RSYNC_OPTS inválido"; return 1; }
+
+	# Imprimir comando de forma segura, si estamos en modo debugg
+    if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
+        print_rsync_command "$origen" "$destino"
+    fi
 
     local RSYNC_CMD=(rsync "${RSYNC_OPTS[@]}" "$origen" "$destino")
 
