@@ -44,6 +44,13 @@ LISTA_SINCRONIZACION=""
 EXCLUSIONES=""
 LOG_FILE="$HOME/sync_bidireccional.log"
 
+# Nombre de los archivos de configuración de directorios (globales)
+LISTA_POR_DEFECTO_FILE="sync_bidireccional_directorios.ini"
+LISTA_ESPECIFICA_POR_DEFECTO_FILE="sync_bidireccional_directorios_${HOSTNAME_RTVA}.ini"
+
+# Nombre del archivo de exclusiones
+EXCLUSIONES_FILE="sync_bidireccional_exclusiones.ini"
+
 # Enlaces simbólicos en la subida, origen
 SYMLINKS_FILE=".sync_bidireccional_symlinks.meta"
 
@@ -194,21 +201,17 @@ verificar_conectividad_pcloud() {
 
 # Buscar archivos de configuración
 find_config_files() {
-    # Determinar el nombre del archivo de lista según el hostname
-    local lista_por_defecto="sync_bidireccional_directorios.ini"
-    local lista_especifica="sync_bidireccional_directorios_${HOSTNAME_RTVA}.ini"
-    
     # Si el hostname es "${HOSTNAME_RTVA}", usar el archivo específico
     if [ "$HOSTNAME" = "${HOSTNAME_RTVA}" ]; then
         
         # Primero buscar en el directorio del script
-        if [ -f "${SCRIPT_DIR}/${lista_especifica}" ]; then
-            LISTA_SINCRONIZACION="${SCRIPT_DIR}/${lista_especifica}"
-        elif [ -f "./${lista_especifica}" ]; then
+        if [ -f "${SCRIPT_DIR}/${LISTA_ESPECIFICA_POR_DEFECTO_FILE}" ]; then
+            LISTA_SINCRONIZACION="${SCRIPT_DIR}/${LISTA_ESPECIFICA_POR_DEFECTO_FILE}"
+        elif [ -f "./${LISTA_ESPECIFICA_POR_DEFECTO_FILE}" ]; then
             # Si no está en el directorio del script, buscar en el directorio actual
-            LISTA_SINCRONIZACION="./${lista_especifica}"
+            LISTA_SINCRONIZACION="./${LISTA_ESPECIFICA_POR_DEFECTO_FILE}"
         else
-            log_error "No se encontró el archivo de lista específico '${lista_especifica}'"
+            log_error "No se encontró el archivo de lista específico '${LISTA_ESPECIFICA_POR_DEFECTO_FILE}'"
             log_info "Busca en:"
             log_info "  - ${SCRIPT_DIR}/"
             log_info "  - $(pwd)/"
@@ -217,11 +220,11 @@ find_config_files() {
     else
         # Para otros hostnames, usar el archivo por defecto
         # Primero buscar en el directorio del script
-        if [ -f "${SCRIPT_DIR}/${lista_por_defecto}" ]; then
-            LISTA_SINCRONIZACION="${SCRIPT_DIR}/${lista_por_defecto}"
-        elif [ -f "./${lista_por_defecto}" ]; then
+        if [ -f "${SCRIPT_DIR}/${LISTA_POR_DEFECTO_FILE}" ]; then
+            LISTA_SINCRONIZACION="${SCRIPT_DIR}/${LISTA_POR_DEFECTO_FILE}"
+        elif [ -f "./${LISTA_POR_DEFECTO_FILE}" ]; then
             # Si no está en el directorio del script, buscar en el directorio actual
-            LISTA_SINCRONIZACION="./${lista_por_defecto}"
+            LISTA_SINCRONIZACION="./${LISTA_POR_DEFECTO_FILE}"
         fi
     fi
     
@@ -232,10 +235,10 @@ find_config_files() {
     fi
     
     # Buscar archivo de exclusiones (igual para todos los hosts)
-    if [ -f "${SCRIPT_DIR}/sync_bidireccional_exclusiones.ini" ]; then
-        EXCLUSIONES="${SCRIPT_DIR}/sync_bidireccional_exclusiones.ini"
-    elif [ -f "./sync_bidireccional_exclusiones.ini" ]; then
-        EXCLUSIONES="./sync_bidireccional_exclusiones.ini"
+    if [ -f "${SCRIPT_DIR}/${EXCLUSIONES_FILE}" ]; then
+        EXCLUSIONES="${SCRIPT_DIR}/${EXCLUSIONES_FILE}"
+    elif [ -f "./${EXCLUSIONES_FILE}" ]; then
+        EXCLUSIONES="./${EXCLUSIONES_FILE}"
     fi
     
     # Validar que el archivo de exclusiones existe si se especificó
@@ -279,7 +282,7 @@ mostrar_ayuda() {
         echo "  - Busca: sync_bidireccional_directorios.ini (por defecto)"
     fi
     
-    echo "  - Busca: sync_bidireccional_exclusiones.ini"
+    echo "  - Busca: ${EXCLUSIONES_FILE}"
     echo ""
     echo "Hostname detectado: ${HOSTNAME}" >&2
     echo ""
@@ -581,6 +584,68 @@ verificar_dependencias() {
     fi
 }
 
+# Función para verificar la existencia de todos los elementos en el archivo de configuración
+verificar_elementos_configuracion() {
+    local PCLOUD_DIR
+    PCLOUD_DIR=$(get_pcloud_dir)
+    local errores=0
+
+    log_info "Verificando existencia de todos los elementos en la configuración..."
+    
+    if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
+        # Verificar items específicos de línea de comandos
+        for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
+            resolver_item_relativo "$elemento"
+            if [ -n "$REL_ITEM" ]; then
+                if [ "$MODO" = "subir" ]; then
+                    if [ ! -e "${LOCAL_DIR}/${REL_ITEM}" ]; then
+                        log_error "El elemento específico '${REL_ITEM}' no existe en el directorio local: ${LOCAL_DIR}/${REL_ITEM}"
+                        errores=1
+                    fi
+                else
+                    if [ ! -e "${PCLOUD_DIR}/${REL_ITEM}" ]; then
+                        log_error "El elemento específico '${REL_ITEM}' no existe en pCloud: ${PCLOUD_DIR}/${REL_ITEM}"
+                        errores=1
+                    fi
+                fi
+            fi
+        done
+    else
+        # Verificar elementos del archivo de configuración
+        while IFS= read -r linea || [ -n "$linea" ]; do
+            [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
+            [[ -z "${linea// }" ]] && continue
+            
+            # Validación de seguridad adicional
+            if [[ "$linea" =~ (^|/)\.\.(/|$) ]] || [[ "$linea" =~ ^\.\./ ]] || [[ "$linea" =~ /\.\.$ ]]; then
+                log_error "Path traversal detectado en el archivo de configuración: $linea"
+                errores=1
+                continue
+            fi
+            
+            if [ "$MODO" = "subir" ]; then
+                if [ ! -e "${LOCAL_DIR}/${linea}" ]; then
+                    log_error "El elemento '$linea' no existe en el directorio local: ${LOCAL_DIR}/${linea}"
+                    errores=1
+                fi
+            else
+                if [ ! -e "${PCLOUD_DIR}/${linea}" ]; then
+                    log_error "El elemento '$linea' no existe en pCloud: ${PCLOUD_DIR}/${linea}"
+                    errores=1
+                fi
+            fi
+        done < "$LISTA_SINCRONIZACION"
+    fi
+
+    if [ $errores -eq 1 ]; then
+        log_error "Se encontraron errores en la configuración. Corrige los elementos antes de continuar."
+        return 1
+    fi
+    
+    log_info "✓ Todos los elementos verificados existen"
+    return 0
+}
+
 # Función para verificar archivos de configuración
 verificar_archivos_configuracion() {
     log_debug "Verificando archivos de configuración..."
@@ -594,7 +659,7 @@ verificar_archivos_configuracion() {
     fi
     
     if [ -z "$EXCLUSIONES" ]; then
-        log_warn "No se encontró el archivo de exclusiones 'sync_bidireccional_exclusiones.ini'"
+        log_warn "No se encontró el archivo de exclusiones '${EXCLUSIONES_FILE}'"
         log_info "No se aplicarán exclusiones específicas"
     fi
 }
@@ -929,7 +994,10 @@ generar_archivo_enlaces() {
     log_debug "Generando archivo de enlaces: $archivo_enlaces"
     log_info "Generando archivo de enlaces simbólicos..."
     
-    : > "$archivo_enlaces"
+    : > "$archivo_enlaces" || {
+        log_error "No se pudo crear el archivo temporal de enlaces"
+        return 1
+    }
 
     if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ] && [ -n "${ITEMS_ESPECIFICOS[0]}" ]; then
         for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
@@ -1366,14 +1434,15 @@ procesar_elementos() {
     else
         log_info "Procesando lista de sincronización: ${LISTA_SINCRONIZACION}"
         while IFS= read -r linea || [ -n "$linea" ]; do
-            [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
+            [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue # Omite comentarios 
+            [[ -z "${linea// }" ]] && continue  # Omite líneas vacías o solo espacios           
             log_debug "Procesando elemento de lista: $linea"
             sincronizar_elemento "$linea" || exit_code=1
             ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
             echo "------------------------------------------"
         done < "$LISTA_SINCRONIZACION"
     fi
-    
+
     log_info "Procesados $ELEMENTOS_PROCESADOS elementos con código de salida: $exit_code"
     return $exit_code
 }
@@ -1666,6 +1735,14 @@ fi
 verificar_dependencias
 find_config_files
 verificar_archivos_configuracion
+
+# Añadir esta verificación antes de iniciar la sincronización
+if ! verificar_elementos_configuracion; then
+    log_error "Error en la configuración. Ejecución abortada."
+    eliminar_lock
+    exit 1
+fi
+
 inicializar_log
 
 # Limpieza de temporales al salir
@@ -1680,7 +1757,7 @@ fi
 
 cleanup() {
     for tf in "${TEMP_FILES[@]:-}"; do
-        if [ -f "$tf" ]; then
+        if [ -n "$tf" ] && [ -f "$tf" ]; then
             rm -f "$tf"
             log_debug "Eliminado temporal: $tf"
         fi
@@ -1718,4 +1795,9 @@ notificar_finalizacion $exit_code
     echo "=========================================="
 } >> "$LOG_FILE"
 
-exit $exit_code
+exit $exit_code# Añadir esta verificación antes de iniciar la sincronización
+if ! verificar_elementos_configuracion; then
+    log_error "Error en la configuración. Ejecución abortada."
+    eliminar_lock
+    exit 1
+fi
