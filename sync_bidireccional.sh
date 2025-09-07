@@ -277,9 +277,9 @@ mostrar_ayuda() {
     echo "  - Directorio actual: $(pwd)/"
     
     if [ "$HOSTNAME" = "${HOSTNAME_RTVA}" ]; then
-        echo "  - Busca: sync_bidireccional_directorios_${HOSTNAME_RTVA}.ini (específico para este host)"
+        echo "  - Busca: ${LISTA_ESPECIFICA_POR_DEFECTO_FILE} (específico para este host)"
     else
-        echo "  - Busca: sync_bidireccional_directorios.ini (por defecto)"
+        echo "  - Busca: ${LISTA_POR_DEFECTO_FILE} (por defecto)"
     fi
     
     echo "  - Busca: ${EXCLUSIONES_FILE}"
@@ -649,8 +649,10 @@ verificar_elementos_configuracion() {
 # Función para verificar archivos de configuración
 verificar_archivos_configuracion() {
     log_debug "Verificando archivos de configuración..."
+    
+    # Verificar que el archivo de lista existe y es legible
     if [ ${#ITEMS_ESPECIFICOS[@]} -eq 0 ] && { [ -z "$LISTA_SINCRONIZACION" ] || [ ! -f "$LISTA_SINCRONIZACION" ]; }; then
-        log_error "No se encontró el archivo de lista 'sync_bidireccional_directorios.ini'"
+        log_error "No se encontró el archivo de lista 'LISTA_POR_DEFECTO_FILE'"
         log_info "Busca en:"
         log_info "  - ${SCRIPT_DIR}/"
         log_info "  - $(pwd)/"
@@ -658,9 +660,28 @@ verificar_archivos_configuracion() {
         exit 1
     fi
     
-    if [ -z "$EXCLUSIONES" ]; then
-        log_warn "No se encontró el archivo de exclusiones '${EXCLUSIONES_FILE}'"
-        log_info "No se aplicarán exclusiones específicas"
+    # Verificar permisos de lectura del archivo de lista
+    if [ -n "$LISTA_SINCRONIZACION" ] && [ ! -r "$LISTA_SINCRONIZACION" ]; then
+        log_error "Sin permisos de lectura para el archivo de lista: $LISTA_SINCRONIZACION"
+        exit 1
+    fi
+    
+    # Verificar que el archivo de lista no esté vacío
+    if [ -n "$LISTA_SINCRONIZACION" ] && [ ! -s "$LISTA_SINCRONIZACION" ]; then
+        log_error "El archivo de lista está vacío: $LISTA_SINCRONIZACION"
+        exit 1
+    fi
+    
+    # Verificar archivo de exclusiones si se especificó
+    if [ -n "$EXCLUSIONES" ] && [ ! -f "$EXCLUSIONES" ]; then
+        log_error "El archivo de exclusiones no existe: $EXCLUSIONES"
+        exit 1
+    fi
+    
+    # Verificar permisos de lectura del archivo de exclusiones
+    if [ -n "$EXCLUSIONES" ] && [ ! -r "$EXCLUSIONES" ]; then
+        log_error "Sin permisos de lectura para el archivo de exclusiones: $EXCLUSIONES"
+        exit 1
     fi
 }
 
