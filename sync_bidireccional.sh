@@ -95,42 +95,55 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color (reset)
 
+# Iconos Unicode
+CHECK_MARK="✓"
+CROSS_MARK="✗"
+INFO_ICON="ℹ"
+WARNING_ICON="⚠"
+DEBUG_ICON="🔍"
+LOCK_ICON="🔒"
+UNLOCK_ICON="🔓"
+CLOCK_ICON="⏱"
+SYNC_ICON="🔄"
+ERROR_ICON="❌"
+SUCCESS_ICON="✅"
+
 # =========================
 # Sistema de logging mejorado
 # =========================
 log_info() {
     local msg="$1"
-    echo -e "${BLUE}[INFO]${NC} $msg"
-    registrar_log "[INFO] $msg"
+    echo -e "${BLUE}${INFO_ICON} [INFO]${NC}  $msg"
+    registrar_log "${INFO_ICON} [INFO] $msg"
 }
 
 log_warn() {
     local msg="$1"
-    echo -e "${YELLOW}[WARN]${NC} $msg"
-    registrar_log "[WARN] $msg"
+    echo -e "${YELLOW}${WARNING_ICON} [WARN]${NC} $msg"
+    registrar_log "${WARNING_ICON} [WARN] $msg"
 }
 
 log_error() {
     local msg="$1"
-    echo -e "${RED}[ERROR]${NC} $msg" >&2
-    registrar_log "[ERROR] $msg"
+    echo -e "${RED}${CROSS_MARK} [ERROR]${NC} $msg" >&2
+    registrar_log "${CROSS_MARK} [ERROR] $msg"
 }
 
 log_success() {
     local msg="$1"
-    echo -e "${GREEN}[SUCCESS]${NC} $msg" >&2
-    registrar_log "[SUCCESS] $msg"
+    echo -e "${GREEN}${CHECK_MARK} [SUCCESS]${NC} $msg" >&2
+    registrar_log "${CHECK_MARK} [SUCCESS] $msg"
 }
 
 DEBUG=0
 # Función de debug que se activa con DEBUG=1 o VERBOSE=1
 log_debug() {
     if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
-        echo -e "${BLUE}[DEBUG]${NC} $1" >&2
-        registrar_log "[DEBUG] $1"
+        echo -e "${BLUE}${CLOCK_ICON} [DEBUG]${NC} $1" >&2
+        registrar_log "${CLOCK_ICON} [DEBUG] $1"
     fi
 }
-
+    
 # Función de logging optimizada con rotación automática
 registrar_log() {
     local message="$(date '+%Y-%m-%d %H:%M:%S') - $1"
@@ -659,7 +672,7 @@ verificar_elementos_configuracion() {
         return 1
     fi
     
-    log_info "✓ Todos los elementos verificados existen"
+    log_info "Todos los elementos verificados existen"
     return 0
 }
 
@@ -1099,7 +1112,7 @@ generar_archivo_enlaces() {
     
         if rsync "${RSYNC_OPTS[@]}" "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"; then
             log_info "Enlaces detectados/guardados en meta: $ENLACES_DETECTADOS"
-            log_success "Archivo de enlaces sincronizado"
+            log_info "Archivo de enlaces sincronizado"
         else
             log_error "Error sincronizando archivo de enlaces"
             return 1
@@ -1456,7 +1469,7 @@ verificar_precondiciones() {
         log_error "Fallo en verificación de pCloud montado - abortando"
         return 1
     else
-        log_info "✓ Verificación de pCloud montado: OK"
+        log_info "Verificación de pCloud montado: OK"
     fi
     
     # Verificar conectividad (solo advertencia)
@@ -1468,7 +1481,7 @@ verificar_precondiciones() {
             log_error "Fallo en verificación de espacio en disco - abortando"
             return 1
         else
-            log_info "✓ Verificación de espacio en disco: OK"
+            log_info "Verificación de espacio en disco: OK"
         fi
     else
         log_debug "Modo dry-run: omitiendo verificación de espacio"
@@ -1522,7 +1535,7 @@ manejar_enlaces_simbolicos() {
         TEMP_FILES+=("$tmp_links")
         
         if generar_archivo_enlaces "$tmp_links"; then
-            log_info "✓ Archivo de enlaces generado correctamente"
+            log_info "Archivo de enlaces generado correctamente"
         else
             log_error "Error al generar archivo de enlaces"
             return 1
@@ -1530,7 +1543,7 @@ manejar_enlaces_simbolicos() {
     else
         log_debug "Modo bajar: recreando enlaces desde archivo"
         if recrear_enlaces_desde_archivo; then
-            log_info "✓ Enlaces recreados correctamente"
+            log_info "Enlaces recreados correctamente"
         else
             log_error "Error al recrear enlaces desde archivo"
             return 1
@@ -1566,7 +1579,7 @@ sincronizar() {
         exit_code=1
         log_warn "Procesamiento de elementos completado con errores"
     else
-        log_info "✓ Procesamiento de elementos completado correctamente"
+        log_info "Procesamiento de elementos completado correctamente"
     fi
 
     # Manejar enlaces simbólicos
@@ -1575,10 +1588,10 @@ sincronizar() {
         exit_code=1
         log_warn "Manejo de enlaces simbólicos completado con errores"
     else
-        log_info "✓ Manejo de enlaces simbólicos completado correctamente"
+        log_success "Manejo de enlaces simbólicos completado correctamente"
     fi
 
-    log_info "Sincronización completada con código de salida: $exit_code"
+    log_success "Sincronización completada con código de salida: $exit_code"
     return $exit_code
 }
 
