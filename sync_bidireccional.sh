@@ -87,13 +87,16 @@ LOCK_TIMEOUT=3600  # Tiempo máximo de bloqueo en segundos (1 hora)
 # Temp files to cleanup
 TEMP_FILES=()
 
-# Colores
+# Definición de colores (códigos ANSI)
 # Ejemplo de uso: echo -e "${RED}cuerpo del texto.${NC}"
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color (reset)
+RED='\033[0;31m'          # Error - Rojo
+GREEN='\033[0;32m'        # Success/Info - Verde
+YELLOW='\033[1;33m'       # Warning - Amarillo
+BLUE='\033[0;34m'         # Info/Debug - Azul
+MAGENTA='\033[0;35m'      # Debug - Magenta
+CYAN='\033[0;36m'         # Info - Cian
+WHITE='\033[1;37m'        # Default - Blanco
+NC='\033[0m'              # No Color (reset)
 
 # Iconos Unicode
 CHECK_MARK="✓"
@@ -108,39 +111,47 @@ SYNC_ICON="🔄"
 ERROR_ICON="❌"
 SUCCESS_ICON="✅"
 
+# Niveles de log con colores asignados
+LOG_INFO="${BLUE}${INFO_ICON} [INFO]${NC}"
+LOG_WARN="${YELLOW}${WARNING_ICON} [WARN]${NC}"
+LOG_ERROR="${RED}${CROSS_MARK} [ERROR]${NC}"
+LOG_SUCCESS="${GREEN}${CHECK_MARK} [SUCCESS]${NC}"
+LOG_DEBUG="${MAGENTA}${CLOCK_ICON} [DEBUG]${NC}"
+
+
 # =========================
 # Sistema de logging mejorado
 # =========================
 log_info() {
     local msg="$1"
-    echo -e "${BLUE}${INFO_ICON} [INFO]${NC}  $msg"
-    registrar_log "${INFO_ICON} [INFO] $msg"
+    echo -e "${LOG_INFO} $msg"
+    registrar_log "[INFO] $msg"
 }
 
 log_warn() {
     local msg="$1"
-    echo -e "${YELLOW}${WARNING_ICON} [WARN]${NC} $msg"
-    registrar_log "${WARNING_ICON} [WARN] $msg"
+    echo -e "${LOG_WARN} $msg"
+    registrar_log "[WARN] $msg"
 }
 
 log_error() {
     local msg="$1"
-    echo -e "${RED}${CROSS_MARK} [ERROR]${NC} $msg" >&2
-    registrar_log "${CROSS_MARK} [ERROR] $msg"
+    echo -e "${LOG_ERROR} $msg" >&2
+    registrar_log "[ERROR] $msg"
 }
 
 log_success() {
     local msg="$1"
-    echo -e "${GREEN}${CHECK_MARK} [SUCCESS]${NC} $msg" >&2
-    registrar_log "${CHECK_MARK} [SUCCESS] $msg"
+    echo -e "${LOG_SUCCESS} $msg" >&2
+    registrar_log "[SUCCESS] $msg"
 }
 
 DEBUG=0
 # Función de debug que se activa con DEBUG=1 o VERBOSE=1
 log_debug() {
     if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
-        echo -e "${BLUE}${CLOCK_ICON} [DEBUG]${NC} $1" >&2
-        registrar_log "${CLOCK_ICON} [DEBUG] $1"
+        echo -e "${LOG_DEBUG} $1" >&2
+        registrar_log "[DEBUG] $1"
     fi
 }
     
