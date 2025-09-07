@@ -1642,11 +1642,8 @@ ajustar_permisos_ejecutables() {
 # =========================
 # Tests unitarios
 # =========================
-run_tests() {
-    echo "Ejecutando tests unitarios..."
-    local tests_passed=0
-    local tests_failed=0
-
+# Añadir estas funciones de test a la sección existente de run_tests()
+test_normaliza_path() {
     # Test 1: normalize_path
     echo "Test 1: normalize_path"
     local result
@@ -1658,7 +1655,9 @@ run_tests() {
         echo "FAIL: normalize_path - Esperaba path normalizado, obtuve: $result"
         tests_failed=$((tests_failed + 1))
     fi
+}
 
+test_get_pcloud_dir() {
     # Test 2: get_pcloud_dir
     echo "Test 2: get_pcloud_dir"
     BACKUP_DIR_MODE="comun"
@@ -1673,7 +1672,9 @@ run_tests() {
         echo "FAIL: get_pcloud_dir - comun: $pcloud_dir_comun, readonly: $pcloud_dir_readonly"
         tests_failed=$((tests_failed + 1))
     fi
+} 
 
+test_construir_opciones_rsync() {
     # Test 3: construir_opciones_rsync
     echo "Test 3: construir_opciones_rsync"
     # Probar diferentes combinaciones de opciones
@@ -1692,7 +1693,7 @@ run_tests() {
     DELETE=1
     construir_opciones_rsync
     local delete_opts="${RSYNC_OPTS[*]}"
-    
+ 
     # Verificar que las opciones cambian según los flags
     if [[ "$base_opts" != "$overwrite_opts" && "$base_opts" != "$delete_opts" ]]; then
         echo "PASS: construir_opciones_rsync"
@@ -1701,7 +1702,9 @@ run_tests() {
         echo "FAIL: construir_opciones_rsync - las opciones no cambian correctamente"
         tests_failed=$((tests_failed + 1))
     fi
+}
 
+test_resolver_item_relativo() {
     # Test 4: resolver_item_relativo
     echo "Test 4: resolver_item_relativo"
     LOCAL_DIR="/home/testuser"
@@ -1713,7 +1716,9 @@ run_tests() {
         echo "FAIL: resolver_item_relativo - Esperaba 'documents/file.txt', obtuve '$REL_ITEM'"
         tests_failed=$((tests_failed + 1))
     fi
+}
 
+test_verificacion_argumetos() {
     # Test 5: verificación de argumentos duplicados
     echo "Test 5: detección de argumentos duplicados"
     declare -A test_seen_opts
@@ -1738,7 +1743,9 @@ run_tests() {
         echo "FAIL: no se detectaron argumentos duplicados cuando debería"
         tests_failed=$((tests_failed + 1))
     fi
+}
 
+test_verificar_espacio_disco() {
     # Test 6: verificar_espacio_disco (test básico)
     echo "Test 6: verificar_espacio_disco (test básico)"
     if verificar_espacio_disco 1 >/dev/null 2>&1; then
@@ -1747,6 +1754,233 @@ run_tests() {
     else
         echo "SKIP: verificar_espacio_disco - no hay espacio suficiente para test"
     fi
+}
+
+test_verificar_conectividad_pcloud() {
+    echo "Test verificar_conectividad_pcloud"
+    
+    # Mock de curl exitoso
+    curl() { return 0; }
+    if verificar_conectividad_pcloud; then
+        echo "PASS: verificar_conectividad_pcloud con conectividad exitosa"
+    else
+        echo "FAIL: verificar_conectividad_pcloud debería haber tenido éxito"
+    fi
+    
+    # Mock de curl fallido
+    curl() { return 1; }
+    if ! verificar_conectividad_pcloud; then
+        echo "PASS: verificar_conectividad_pcloud sin conectividad"
+    else
+        echo "FAIL: verificar_conectividad_pcloud debería haber fallado"
+    fi
+    
+    # Mock de curl no disponible
+    unset curl
+    if verificar_conectividad_pcloud; then
+        echo "PASS: verificar_conectividad_pcloud sin curl disponible"
+    else
+        echo "FAIL: verificar_conectividad_pcloud debería continuar sin curl"
+    fi
+}
+
+test_sistema_notificaciones() {
+    echo "Test sistema_notificaciones"
+    
+    # Test notificación info
+    if enviar_notificacion "Test Titulo" "Test Mensaje" "info"; then
+        echo "PASS: notificación info enviada"
+    else
+        echo "FAIL: notificación info falló"
+    fi
+    
+    # Test notificación error
+    if enviar_notificacion "Test Error" "Test Mensaje Error" "error"; then
+        echo "PASS: notificación error enviada"
+    else
+        echo "FAIL: notificación error falló"
+    fi
+}
+
+test_manejo_enlaces_simbolicos() {
+    echo "Test manejo_enlaces_simbolicos"
+    
+    # Crear entorno de prueba
+    local test_dir=$(mktemp -d)
+    local link_file="${test_dir}/test_links.meta"
+    
+    # Crear enlaces de prueba
+    mkdir -p "${test_dir}/subdir"
+    echo "content" > "${test_dir}/file.txt"
+    ln -s "${test_dir}/file.txt" "${test_dir}/link_file"
+    ln -s "subdir" "${test_dir}/link_dir"
+    
+    # Test registrar_enlace
+    if registrar_enlace "${test_dir}/link_file" "$link_file"; then
+        echo "PASS: registrar_enlace con archivo"
+    else
+        echo "FAIL: registrar_enlace con archivo"
+    fi
+    
+    if registrar_enlace "${test_dir}/link_dir" "$link_file"; then
+        echo "PASS: registrar_enlace con directorio"
+    else
+        echo "FAIL: registrar_enlace con directorio"
+    fi
+    
+    # Test procesar_linea_enlace
+    if procesar_linea_enlace "test_link" "${test_dir}/file.txt"; then
+        echo "PASS: procesar_linea_enlace válido"
+    else
+        echo "FAIL: procesar_linea_enlace válido"
+    fi
+    
+    # Limpieza
+    rm -rf "$test_dir"
+}
+
+test_sistema_locking() {
+    echo "Test sistema_locking"
+    
+    # Test establecer_lock
+    if establecer_lock; then
+        echo "PASS: establecer_lock exitoso"
+    else
+        echo "FAIL: establecer_lock falló"
+    fi
+    
+    # Test eliminar_lock
+    if eliminar_lock; then
+        echo "PASS: eliminar_lock exitoso"
+    else
+        echo "FAIL: eliminar_lock falló"
+    fi
+    
+    # Test con lock existente
+    echo "12345" > "$LOCK_FILE"
+    if ! establecer_lock; then
+        echo "PASS: establecer_lock detectó lock existente"
+    else
+        echo "FAIL: establecer_lock debería haber detectado lock existente"
+    fi
+    
+    # Limpieza
+    rm -f "$LOCK_FILE"
+}
+
+test_verificar_espacio_disco() {
+    echo "Test verificar_espacio_disco"
+    
+    # Test con espacio suficiente (1MB)
+    if verificar_espacio_disco 1; then
+        echo "PASS: verificar_espacio_disco con espacio suficiente"
+    else
+        echo "FAIL: verificar_espacio_disco con espacio suficiente"
+    fi
+    
+    # Test con espacio insuficiente (valor muy alto)
+    if ! verificar_espacio_disco 1000000000; then
+        echo "PASS: verificar_espacio_disco detectó espacio insuficiente"
+    else
+        echo "FAIL: verificar_espacio_disco debería haber detectado espacio insuficiente"
+    fi
+}
+
+test_procesar_argumentos() {
+    echo "Test procesar_argumentos"
+    
+    # Test argumentos válidos
+    procesar_argumentos --subir --dry-run
+    if [ "$MODO" = "subir" ] && [ $DRY_RUN -eq 1 ]; then
+        echo "PASS: procesar_argumentos con --subir --dry-run"
+    else
+        echo "FAIL: procesar_argumentos con --subir --dry-run"
+    fi
+    
+    # Test argumentos inválidos
+    if ! procesar_argumentos --invalid-argument 2>/dev/null; then
+        echo "PASS: procesar_argumentos detectó argumento inválido"
+    else
+        echo "FAIL: procesar_argumentos debería haber detectado argumento inválido"
+    fi
+    
+    # Test argumentos duplicados
+    if ! procesar_argumentos --subir --bajar 2>/dev/null; then
+        echo "PASS: procesar_argumentos detectó argumentos conflictivos"
+    else
+        echo "FAIL: procesar_argumentos debería haber detectado argumentos conflictivos"
+    fi
+}
+
+test_manejo_items_especificos() {
+    echo "Test manejo_items_especificos"
+    
+    # Crear entorno de prueba
+    local test_dir=$(mktemp -d)
+    mkdir -p "${test_dir}/documents"
+    echo "test" > "${test_dir}/documents/file.txt"
+    
+    # Test con item específico
+    LOCAL_DIR="$test_dir"
+    ITEMS_ESPECIFICOS=("documents/file.txt")
+    
+    if resolver_item_relativo "documents/file.txt"; then
+        echo "PASS: resolver_item_relativo con ruta relativa"
+    else
+        echo "FAIL: resolver_item_relativo con ruta relativa"
+    fi
+    
+    # Test con path traversal (debería fallar)
+    if ! resolver_item_relativo "../etc/passwd"; then
+        echo "PASS: resolver_item_relativo detectó path traversal"
+    else
+        echo "FAIL: resolver_item_relativo debería haber detectado path traversal"
+    fi
+    
+    # Limpieza
+    rm -rf "$test_dir"
+}
+
+test_rotacion_logs() {
+    echo "Test rotacion_logs"
+    
+    # Crear log grande para prueba de rotación
+    local test_log=$(mktemp)
+    dd if=/dev/zero of="$test_log" bs=1M count=11 2>/dev/null
+    
+    LOG_FILE="$test_log"
+    if registrar_log "Test de rotación"; then
+        echo "PASS: rotación de logs funcionó"
+    else
+        echo "FAIL: rotación de logs falló"
+    fi
+    
+    # Limpieza
+    rm -f "$test_log"
+}
+
+# Actualizar la función run_tests para incluir los nuevos tests
+run_tests() {
+    echo "Ejecutando tests unitarios..."
+    local tests_passed=0
+    local tests_failed=0
+
+    # Ejecutar tests existentes
+	test_normaliza_path
+	test_get_pcloud_dir
+	test_construir_opciones_rsync
+	test_resolver_item_relativo
+	test_verificacion_argumetos
+	test_verificar_espacio_disco
+    
+    # Ejecutar nuevos tests
+    test_verificar_conectividad_pcloud
+    test_sistema_notificaciones
+    test_manejo_enlaces_simbolicos
+    test_sistema_locking
+    test_procesar_argumentos
+    test_manejo_items_especificos
+    test_rotacion_logs
 
     # Resumen de tests
     echo ""
@@ -1756,6 +1990,9 @@ run_tests() {
     echo "Tests pasados: $tests_passed"
     echo "Tests fallados: $tests_failed"
     echo "Total tests: $((tests_passed + tests_failed))"
+    
+    # Limpieza final
+    rm -f "$LOCK_FILE"
     
     return $tests_failed
 }
