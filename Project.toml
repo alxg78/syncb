@@ -1,0 +1,11 @@
+name = "Syncb"
+uuid = "ddc24ce9-3092-4243-a0b7-dab70a5506b1"
+authors = ["jheras <jherasm@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+LoggingExtras = "e6f89c97-d47a-5376-807f-9c37f3926c36"
+ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
