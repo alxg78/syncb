@@ -3,36 +3,12 @@
 Script de sincronización bidireccional entre directorio local y pCloud
 
 Este script permite sincronizar archivos y directorios entre un directorio local
-y pCloud en ambas direcciones (subir y bajar). Incluye funcionalidades como:
-- Sincronización selectiva con listas de directorios
-- Manejo de enlaces simbólicossyncb
-- Modo simulación (dry-run)
-- Eliminación de archivos obsoletos
-- Límite de ancho de banda
-- Sistema de logging y notificaciones
-- Bloqueo de ejecución concurrente
+y pCloud en ambas direcciones (subir y bajar). Toda la configuración se carga desde
+un archivo TOML único.
 
 Uso:
     Para subir: python syncb.py --subir [opciones]
     Para bajar: python syncb.py --bajar [opciones]
-
-Opciones disponibles:
-    --subir            Sincroniza desde local a pCloud
-    --bajar            Sincroniza desde pCloud a local
-    --delete           Elimina archivos obsoletos en destino
-    --dry-run          Simula sin hacer cambios reales
-    --item ELEMENTO    Sincroniza solo el elemento especificado
-    --yes              Ejecuta sin confirmación
-    --backup-dir       Usa directorio de backup de solo lectura
-    --exclude PATRON   Excluye archivos que coincidan con el patrón
-    --overwrite        Sobrescribe todos los archivos en destino
-    --checksum         Fuerza comparación con checksum
-    --bwlimit KB/s     Limita la velocidad de transferencia
-    --timeout MINUTOS  Límite de tiempo por operación
-    --force-unlock     Fuerza eliminación de lock
-    --verbose          Habilita modo verboso
-    --test             Ejecuta tests unitarios
-    --help             Muestra ayuda
 """
 
 import os
@@ -47,68 +23,148 @@ import datetime
 import json
 import signal
 import platform
+import psutil
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Set, Any
 
-# Configuración básica
+try:
+    import tomllib
+except ImportError:
+    # Para Python < 3.11, usar tomli
+    try:
+        import tomli as tomllib
+    except ImportError:
+        print("ERROR: Se requiere tomli para Python < 3.11")
+        print("Instalar con: pip install tomli")
+        sys.exit(1)
+
+
 class Config:
-    """Configuración global del script"""
+    """Carga y gestiona la configuración desde un archivo TOML"""
     
-    # Punto de montaje de pCloud
-    PCLOUD_MOUNT_POINT = Path.home() / "pCloudDrive"
+    # Ubicaciones por defecto para buscar el archivo de configuración
+    DEFAULT_CONFIG_SEARCH_PATHS = [
+        "syncb_config.toml",
+        "~/.config/syncb/syncb_config.toml",
+        "/etc/syncb/syncb_config.toml"
+    ]
     
-    # Directorio local
-    LOCAL_DIR = Path.home()
+    def __init__(self, config_file=None):
+        # Ruta para el archivo de configuración
+        self.config_file = config_file or self._find_config_file()
+        
+        if not self.config_file or not self.config_file.exists():
+            raise FileNotFoundError(f"No se encontró el archivo de configuración: {config_file}")
+        
+        # Cargar configuración
+        self.config_data = self._load_config()
+        
+        # Asignar valores de configuración
+        self._assign_config_values()
     
-    # Directorios de pCloud
-    PCLOUD_BACKUP_COMUN = PCLOUD_MOUNT_POINT / "Backups" / "Backup_Comun"
-    PCLOUD_BACKUP_READONLY = PCLOUD_MOUNT_POINT / "pCloud Backup" / "feynman.sobremesa.dnf"
+    def _find_config_file(self):
+        """Busca el archivo de configuración en ubicaciones configurables"""
+        # Primero intentar con las ubicaciones por defecto
+        search_paths = self.DEFAULT_CONFIG_SEARCH_PATHS.copy()
+        
+        for location in search_paths:
+            # Expandir ~ y variables de entorno
+            expanded_location = Path(os.path.expanduser(os.path.expandvars(location)))
+            if expanded_location.exists():
+                return expanded_location
+        
+        return None
     
-    # Archivos de configuración
-    LISTA_POR_DEFECTO_FILE = "syncb_directorios.ini"
-    LISTA_ESPECIFICA_POR_DEFECTO_FILE = "syncb_directorios_{}.ini"
-    EXCLUSIONES_FILE = "syncb_exclusiones.ini"
-    
-    # Archivo de enlaces simbólicos
-    SYMLINKS_FILE = ".syncb_symlinks.meta"
-    
-    # Log file
-    LOG_FILE = Path.home() / "syncb.log"
-    
-    # Lock file
-    LOCK_FILE = Path(tempfile.gettempdir()) / "syncb.lock"
-    LOCK_TIMEOUT = 3600  # 1 hora en segundos
-    
-    # Hostname de la máquina virtual de RTVA
-    HOSTNAME_RTVA = "feynman.rtva.dnf"
-    
-    # Colores para logging (códigos ANSI)
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[1;33m'
-    BLUE = '\033[0;34m'
-    MAGENTA = '\033[0;35m'
-    CYAN = '\033[0;36m'
-    WHITE = '\033[1;37m'
-    NC = '\033[0m'  # No Color
-    
-    # Iconos Unicode
-    CHECK_MARK = "✓"
-    CROSS_MARK = "✗"
-    INFO_ICON = "ℹ"
-    WARNING_ICON = "⚠"
-    CLOCK_ICON = "⏱"
-    SYNC_ICON = "🔄"
-    ERROR_ICON = "❌"
-    SUCCESS_ICON = "✅"
+    def _load_config(self):
+        """Carga la configuración desde el archivo TOML"""
+        try:
+            with open(self.config_file, 'rb') as f:
+                return tomllib.load(f)
+        except Exception as e:
+            raise RuntimeError(f"Error cargando configuración: {e}")
+            
+    def _parse_ansi_escape(self, color_str):
+        """Convierte una cadena con escapes ANSI en la secuencia de escape real"""
+        return color_str.encode().decode('unicode_escape')   
+            
+    def _assign_config_values(self):
+        """Asigna valores de configuración a atributos de clase"""
+        # Rutas y directorios
+        paths = self.config_data.get('paths', {})
+        self.PCLOUD_MOUNT_POINT = Path(os.path.expanduser(os.path.expandvars(
+            paths.get('pcloud_mount_point', "~/pCloudDrive"))))
+        self.LOCAL_DIR = Path(os.path.expanduser(os.path.expandvars(
+            paths.get('local_dir', "~"))))
+        self.PCLOUD_BACKUP_COMUN = Path(os.path.expanduser(os.path.expandvars(
+            paths.get('pcloud_backup_comun', str(self.PCLOUD_MOUNT_POINT / "Backups" / "Backup_Comun")))))
+        self.PCLOUD_BACKUP_READONLY = Path(os.path.expanduser(os.path.expandvars(
+            paths.get('pcloud_backup_readonly', str(self.PCLOUD_MOUNT_POINT / "pCloud Backup" / "feynman.sobremesa.dnf")))))
+        
+        # Ubicaciones de búsqueda de configuración
+        self.CONFIG_SEARCH_PATHS = [
+            os.path.expanduser(os.path.expandvars(path))
+            for path in paths.get('config_search_paths', self.DEFAULT_CONFIG_SEARCH_PATHS)
+        ]
+        
+        # Archivos
+        files = self.config_data.get('files', {})
+        self.LISTA_POR_DEFECTO_FILE = files.get('lista_por_defecto', "syncb_config.toml")
+        self.LISTA_ESPECIFICA_POR_DEFECTO_FILE = files.get('lista_especifica_por_defecto', "syncb_config.toml")
+        self.EXCLUSIONES_FILE = files.get('exclusiones_file', "syncb_config.toml")
+        self.SYMLINKS_FILE = files.get('symlinks_file', ".syncb_symlinks.meta")
+        self.LOG_FILE = Path(os.path.expanduser(os.path.expandvars(
+            files.get('log_file', "~/syncb.log"))))
+        
+        # Configuración general
+        general = self.config_data.get('general', {})
+        self.LOCK_TIMEOUT = general.get('lock_timeout', 3600)
+        self.HOSTNAME_RTVA = general.get('hostname_rtva', "feynman.rtva.dnf")
+        self.DEFAULT_TIMEOUT_MINUTES = general.get('default_timeout_minutes', 30)
+        
+        # Listas de sincronización y exclusión (directamente desde TOML)
+        self.directorios_sincronizacion = self.config_data.get('directorios_sincronizacion', [])
+        self.exclusiones = self.config_data.get('exclusiones', [])
 
-
+        # Colores para logging (códigos ANSI)
+        colors = self.config_data.get('colors', {})
+        # Procesar cada color para interpretar las secuencias de escape
+        self.RED = self._parse_ansi_escape(colors.get('red', '\033[0;31m'))
+        self.GREEN = self._parse_ansi_escape(colors.get('green', '\033[0;32m'))
+        self.YELLOW = self._parse_ansi_escape(colors.get('yellow', '\033[1;33m'))
+        self.BLUE = self._parse_ansi_escape(colors.get('blue', '\033[0;34m'))
+        self.MAGENTA = self._parse_ansi_escape(colors.get('magenta', '\033[0;35m'))
+        self.CYAN = self._parse_ansi_escape(colors.get('cyan', '\033[0;36m'))
+        self.WHITE = self._parse_ansi_escape(colors.get('white', '\033[1;37m'))
+        self.NC = self._parse_ansi_escape(colors.get('no_color', '\033[0m'))  # No Color
+        
+        # Iconos Unicode
+        icons = self.config_data.get('icons', {})
+        self.CHECK_MARK = icons.get('check_mark', "✓")
+        self.CROSS_MARK = icons.get('cross_mark', "✗")
+        self.INFO_ICON = icons.get('info_icon', "ℹ")
+        self.WARNING_ICON = icons.get('warning_icon', "⚠")
+        self.CLOCK_ICON = icons.get('clock_icon', "⏱")
+        self.SYNC_ICON = icons.get('sync_icon', "🔄")
+        self.ERROR_ICON = icons.get('error_icon', "❌")
+        self.SUCCESS_ICON = icons.get('success_icon', "✅")
+        
+     
 class SyncBidireccional:
     """Clase principal para la sincronización bidireccional"""
     
-    def __init__(self):
+    def __init__(self, config_file=None):
         """Inicializa la instancia con valores por defecto"""
-        self.config = Config()
+        try:
+            self.config = Config(config_file)
+        except Exception as e:
+            print(f"Error cargando configuración: {e}")
+            # Intentar cargar con ubicaciones por defecto
+            try:
+                self.config = Config()
+            except Exception:
+                print("No se pudo cargar la configuración. Saliendo.")
+                sys.exit(1)
+            
         self.modo = None  # 'subir' o 'bajar'
         self.dry_run = False
         self.delete = False
@@ -118,11 +174,9 @@ class SyncBidireccional:
         self.verbose = False
         self.use_checksum = False
         self.bw_limit = None
-        self.timeout_minutes = 30
+        self.timeout_minutes = self.config.DEFAULT_TIMEOUT_MINUTES
         self.items_especificos = []
         self.exclusiones_cli = []
-        self.lista_sincronizacion = None
-        self.exclusiones = None
         
         # Variables para estadísticas
         self.elementos_procesados = 0
@@ -145,6 +199,9 @@ class SyncBidireccional:
         
         # Configurar logging
         self.setup_logging()
+        
+        # Lock file
+        self.LOCK_FILE = Path(tempfile.gettempdir()) / "syncb.lock"
     
     def setup_logging(self):
         """Configura el sistema de logging"""
@@ -152,18 +209,24 @@ class SyncBidireccional:
         class ColoredFormatter(logging.Formatter):
             """Formateador de log con colores"""
             
-            FORMATS = {
-                logging.DEBUG: f"{Config.MAGENTA}{Config.CLOCK_ICON} [DEBUG]{Config.NC} %(message)s",
-                logging.INFO: f"{Config.BLUE}{Config.INFO_ICON} [INFO]{Config.NC} %(message)s",
-                logging.WARNING: f"{Config.YELLOW}{Config.WARNING_ICON} [WARN]{Config.NC} %(message)s",
-                logging.ERROR: f"{Config.RED}{Config.CROSS_MARK} [ERROR]{Config.NC} %(message)s",
-                logging.CRITICAL: f"{Config.RED}{Config.ERROR_ICON} [CRITICAL]{Config.NC} %(message)s"
-            }
+            def __init__(self, config):
+                self.config = config
+                super().__init__()
             
             def format(self, record):
-                log_fmt = self.FORMATS.get(record.levelno)
-                formatter = logging.Formatter(log_fmt)
-                return formatter.format(record)
+                # Formato con colores ANSI
+                if record.levelno == logging.DEBUG:
+                    return f"{self.config.MAGENTA}{self.config.CLOCK_ICON} [DEBUG]{self.config.NC} {record.getMessage()}"
+                elif record.levelno == logging.INFO:
+                    return f"{self.config.BLUE}{self.config.INFO_ICON} [INFO]{self.config.NC} {record.getMessage()}"
+                elif record.levelno == logging.WARNING:
+                    return f"{self.config.YELLOW}{self.config.WARNING_ICON} [WARN]{self.config.NC} {record.getMessage()}"
+                elif record.levelno == logging.ERROR:
+                    return f"{self.config.RED}{self.config.CROSS_MARK} [ERROR]{self.config.NC} {record.getMessage()}"
+                elif record.levelno == logging.CRITICAL:
+                    return f"{self.config.RED}{self.config.ERROR_ICON} [CRITICAL]{self.config.NC} {record.getMessage()}"
+                else:
+                    return f"{record.getMessage()}"
         
         # Configurar logger principal
         self.logger = logging.getLogger('syncb')
@@ -172,7 +235,7 @@ class SyncBidireccional:
         # Handler para consola
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.DEBUG)
-        console_handler.setFormatter(ColoredFormatter())
+        console_handler.setFormatter(ColoredFormatter(self.config))
         self.logger.addHandler(console_handler)
         
         # Handler para archivo (sin colores)
@@ -196,11 +259,12 @@ class SyncBidireccional:
     
     def log_debug(self, msg):
         """Registra un mensaje de debug"""
-        self.logger.debug(msg)
+        if self.verbose:
+            self.logger.debug(msg)
     
     def log_success(self, msg):
         """Registra un mensaje de éxito"""
-        self.logger.info(f"{Config.GREEN}{Config.CHECK_MARK} [SUCCESS]{Config.NC} {msg}")
+        self.logger.info(f"{self.config.GREEN}{self.config.CHECK_MARK} [SUCCESS]{self.config.NC} {msg}")
     
     def parse_arguments(self):
         """Procesa los argumentos de línea de comandos"""
@@ -234,6 +298,7 @@ class SyncBidireccional:
         parser.add_argument("--force-unlock", action="store_true", help="Fuerza eliminación de lock")
         parser.add_argument("--verbose", action="store_true", help="Habilita modo verboso")
         parser.add_argument("--test", action="store_true", help="Ejecuta tests unitarios")
+        parser.add_argument("--config", type=str, help="Ruta al archivo de configuración TOML")
         
         args = parser.parse_args()
         
@@ -269,11 +334,19 @@ class SyncBidireccional:
         if args.test:
             self.run_tests()
             sys.exit(0)
+            
+        # Si se especificó un archivo de configuración, recargar configuración
+        if args.config:
+            try:
+                self.config = Config(Path(args.config))
+            except Exception as e:
+                self.log_error(f"No se pudo cargar la configuración desde {args.config}: {e}")
+                sys.exit(1)
     
     def force_unlock(self):
         """Fuerza la eliminación del archivo de lock"""
-        if self.config.LOCK_FILE.exists():
-            self.config.LOCK_FILE.unlink()
+        if self.LOCK_FILE.exists():
+            self.LOCK_FILE.unlink()
             self.log_info("Lock eliminado forzosamente")
         else:
             self.log_info("No existe archivo de lock")
@@ -284,43 +357,47 @@ class SyncBidireccional:
             return self.config.PCLOUD_BACKUP_READONLY
         else:
             return self.config.PCLOUD_BACKUP_COMUN
-    
-    def find_config_files(self):
-        """Busca los archivos de configuración"""
-        # Si el hostname es el de RTVA, usar archivo específico
-        if self.hostname == self.config.HOSTNAME_RTVA:
-            lista_especifica = self.config.LISTA_ESPECIFICA_POR_DEFECTO_FILE.format(self.config.HOSTNAME_RTVA)
+   
+    # ERROR, no funciona se emplea la funcion de abajo
+    def get_lista_sincronizacion1(self):
+        """Obtiene la lista de elementos a sincronizar"""
+        # Si hay elementos específicos desde CLI, usarlos
+        if self.items_especificos:
+            return self.items_especificos
             
-            # Buscar en directorio del script
-            lista_path = self.script_dir / lista_especifica
-            if lista_path.exists():
-                self.lista_sincronizacion = lista_path
-            else:
-                # Buscar en directorio actual
-                lista_path = Path.cwd() / lista_especifica
-                if lista_path.exists():
-                    self.lista_sincronizacion = lista_path
-                else:
-                    self.log_error(f"No se encontró el archivo de lista específico '{lista_especifica}'")
-                    sys.exit(1)
-        else:
-            # Para otros hostnames, usar archivo por defecto
-            lista_path = self.script_dir / self.config.LISTA_POR_DEFECTO_FILE
-            if lista_path.exists():
-                self.lista_sincronizacion = lista_path
-            else:
-                lista_path = Path.cwd() / self.config.LISTA_POR_DEFECTO_FILE
-                if lista_path.exists():
-                    self.lista_sincronizacion = lista_path
+        # Si el hostname es el de RTVA, buscar lista específica
+        if self.hostname == self.config.HOSTNAME_RTVA:
+            # Buscar lista específica en la configuración
+            host_specific = self.config.config_data.get('host_specific', {})
+            # Usar el hostname con puntos entre comillas
+            host_key = f'"{self.hostname}"' if '.' in self.hostname else self.hostname
+            if host_key in host_specific:
+                return host_specific[host_key].get('directorios_sincronizacion', [])
         
-        # Buscar archivo de exclusiones
-        exclusiones_path = self.script_dir / self.config.EXCLUSIONES_FILE
-        if exclusiones_path.exists():
-            self.exclusiones = exclusiones_path
-        else:
-            exclusiones_path = Path.cwd() / self.config.EXCLUSIONES_FILE
-            if exclusiones_path.exists():
-                self.exclusiones = exclusiones_path
+        # Devolver lista por defecto de la configuración
+        return self.config.directorios_sincronizacion
+   
+    def get_lista_sincronizacion(self):
+        """Obtiene la lista de elementos a sincronizar"""
+        # Si hay elementos específicos desde CLI, usarlos
+        if self.items_especificos:
+            return self.items_especificos
+            
+        # Si el hostname es el de RTVA, buscar lista específica
+        if self.hostname == self.config.HOSTNAME_RTVA:
+
+            # Buscar lista específica en la configuración
+            if 'host_specific' in self.config.config_data and self.hostname in self.config.config_data['host_specific']:
+                return self.config.config_data['host_specific'][self.hostname].get('directorios_sincronizacion', [".local/bin"])
+
+        # Devolver lista por defecto de la configuración
+        return self.config.directorios_sincronizacion
+
+    def get_exclusiones(self):
+        """Obtiene la lista de exclusiones"""
+        exclusiones = self.config.exclusiones.copy()
+        exclusiones.extend(self.exclusiones_cli)
+        return exclusiones
     
     def verificar_pcloud_montado(self):
         """Verifica que pCloud esté montado correctamente"""
@@ -378,6 +455,51 @@ class SyncBidireccional:
         self.log_info("Verificación de pCloud: OK - El directorio está montado y accesible")
         return True
     
+    def verificar_conectividad_pcloud(self):
+        """Verifica la conectividad con pCloud"""
+        self.log_debug("Verificando conectividad con pCloud...")
+        
+        try:
+            # Intentamos hacer un ping a pCloud
+            result = subprocess.run(["curl", "-s", "https://www.pcloud.com/"], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                self.log_info("Verificación de conectividad pCloud: OK")
+                return True
+            else:
+                self.log_warn("No se pudo conectar a pCloud. Verifica tu conexión a Internet.")
+                return False
+        except subprocess.TimeoutExpired:
+            self.log_warn("Timeout al verificar conectividad con pCloud")
+            return False
+        except Exception as e:
+            self.log_warn(f"Error al verificar conectividad con pCloud: {e}")
+            return False
+    
+    def verificar_espacio_disco(self, mb_necesarios=100):
+        """Verifica que haya suficiente espacio en disco"""
+        pcloud_dir = self.get_pcloud_dir()
+        
+        # Determinar el directorio a verificar según el modo
+        if self.modo == "subir":
+            directorio = pcloud_dir
+        else:
+            directorio = self.config.LOCAL_DIR
+            
+        # Obtener el espacio libre en MB
+        try:
+            stat = shutil.disk_usage(directorio)
+            libre_mb = stat.free / (1024 * 1024)
+            if libre_mb < mb_necesarios:
+                self.log_error(f"Espacio insuficiente en {directorio}. Libre: {libre_mb:.2f} MB, Necesario: {mb_necesarios} MB")
+                return False
+            else:
+                self.log_info(f"Espacio en disco: {libre_mb:.2f} MB libres")
+                return True
+        except Exception as e:
+            self.log_error(f"Error al verificar espacio en disco: {e}")
+            return False
+    
     def mostrar_banner(self):
         """Muestra el banner informativo"""
         pcloud_dir = self.get_pcloud_dir()
@@ -398,31 +520,37 @@ class SyncBidireccional:
             print("DIRECTORIO: Backup común (Backup_Comun)")
         
         if self.dry_run:
-            print(f"ESTADO: {Config.YELLOW}MODO SIMULACIÓN{Config.NC} (no se realizarán cambios)")
+            print(f"ESTADO: {self.config.YELLOW}MODO SIMULACIÓN{self.config.NC} (no se realizarán cambios)")
         
         if self.delete:
-            print(f"BORRADO: {Config.GREEN}ACTIVADO{Config.NC} (se eliminarán archivos obsoletos)")
+            print(f"BORRADO: {self.config.GREEN}ACTIVADO{self.config.NC} (se eliminarán archivos obsoletos)")
         
         if self.yes:
             print("CONFIRMACIÓN: Automática (sin preguntar)")
         
         if self.overwrite:
-            print(f"SOBRESCRITURA: {Config.GREEN}ACTIVADA{Config.NC}")
+            print(f"SOBRESCRITURA: {self.config.GREEN}ACTIVADA{self.config.NC}")
         else:
             print("MODO: SEGURO (--update activado)")
         
+        elementos = self.get_lista_sincronizacion()
         if self.items_especificos:
             print(f"ELEMENTOS ESPECÍFICOS: {', '.join(self.items_especificos)}")
         else:
-            print(f"LISTA: {self.lista_sincronizacion}")
+            print(f"ELEMENTOS A SINCRONIZAR: {len(elementos)} elementos desde configuración")
+            if self.verbose:
+                for i, elemento in enumerate(elementos, 1):
+                    print(f"  {i}. {elemento}")
         
-        print(f"EXCLUSIONES: {self.exclusiones}")
-        
-        if self.exclusiones_cli:
-            print(f"EXCLUSIONES CLI ({len(self.exclusiones_cli)} patrones):")
-            for i, patron in enumerate(self.exclusiones_cli, 1):
+        exclusiones = self.get_exclusiones()
+        if exclusiones:
+            print(f"EXCLUSIONES ({len(exclusiones)} patrones):")
+            for i, patron in enumerate(exclusiones[:5], 1):  # Mostrar solo las primeras 5
                 print(f"  {i}. {patron}")
+            if len(exclusiones) > 5:
+                print(f"  ... y {len(exclusiones) - 5} más")
         
+        print(f"ARCHIVO DE CONFIGURACIÓN: {self.config.config_file}")
         print("=" * 50)
     
     def confirmar_ejecucion(self):
@@ -442,10 +570,10 @@ class SyncBidireccional:
     
     def establecer_lock(self):
         """Establece un lock para evitar ejecuciones concurrentes"""
-        if self.config.LOCK_FILE.exists():
+        if self.LOCK_FILE.exists():
             # Leer información del lock existente
             try:
-                with open(self.config.LOCK_FILE, 'r') as f:
+                with open(self.LOCK_FILE, 'r') as f:
                     lock_info = json.load(f)
                 
                 lock_pid = lock_info.get('pid')
@@ -455,7 +583,7 @@ class SyncBidireccional:
                 
                 if lock_age > self.config.LOCK_TIMEOUT:
                     self.log_warn(f"Eliminando lock obsoleto (edad: {lock_age:.0f}s > timeout: {self.config.LOCK_TIMEOUT}s)")
-                    self.config.LOCK_FILE.unlink()
+                    self.LOCK_FILE.unlink()
                 else:
                     # Verificar si el proceso todavía existe
                     try:
@@ -466,11 +594,11 @@ class SyncBidireccional:
                     except OSError:
                         # El proceso ya no existe
                         self.log_warn(f"Eliminando lock obsoleto del proceso {lock_pid}")
-                        self.config.LOCK_FILE.unlink()
+                        self.LOCK_FILE.unlink()
             except (json.JSONDecodeError, IOError):
                 # El archivo de lock está corrupto o no se puede leer
                 self.log_warn("Eliminando lock corrupto")
-                self.config.LOCK_FILE.unlink()
+                self.LOCK_FILE.unlink()
         
         # Crear nuevo lock
         lock_info = {
@@ -483,9 +611,9 @@ class SyncBidireccional:
         }
         
         try:
-            with open(self.config.LOCK_FILE, 'w') as f:
+            with open(self.LOCK_FILE, 'w') as f:
                 json.dump(lock_info, f)
-            self.log_info(f"Lock establecido: {self.config.LOCK_FILE}")
+            self.log_info(f"Lock establecido: {self.LOCK_FILE}")
             return True
         except IOError as e:
             self.log_error(f"No se pudo crear el archivo de lock: {e}")
@@ -493,17 +621,17 @@ class SyncBidireccional:
     
     def eliminar_lock(self):
         """Elimina el lock si pertenece a este proceso"""
-        if self.config.LOCK_FILE.exists():
+        if self.LOCK_FILE.exists():
             try:
-                with open(self.config.LOCK_FILE, 'r') as f:
+                with open(self.LOCK_FILE, 'r') as f:
                     lock_info = json.load(f)
                 
                 if lock_info.get('pid') == os.getpid():
-                    self.config.LOCK_FILE.unlink()
+                    self.LOCK_FILE.unlink()
                     self.log_info("Lock eliminado")
             except (json.JSONDecodeError, IOError):
                 # Si no podemos leer el lock, lo eliminamos de todas formas
-                self.config.LOCK_FILE.unlink()
+                self.LOCK_FILE.unlink()
                 self.log_info("Lock eliminado (forzado)")
     
     def construir_opciones_rsync(self):
@@ -533,10 +661,9 @@ class SyncBidireccional:
         if self.bw_limit:
             opts.append(f"--bwlimit={self.bw_limit}")
         
-        if self.exclusiones and self.exclusiones.exists():
-            opts.append(f"--exclude-from={self.exclusiones}")
-        
-        for patron in self.exclusiones_cli:
+        # Añadir exclusiones desde configuración y CLI
+        exclusiones = self.get_exclusiones()
+        for patron in exclusiones:
             opts.append(f"--exclude={patron}")
         
         return opts
@@ -576,7 +703,7 @@ class SyncBidireccional:
         elif not dir_destino.exists() and self.dry_run:
             self.log_info(f"SIMULACIÓN: Se crearía directorio: {dir_destino}")
         
-        self.log_info(f"{Config.BLUE}Sincronizando: {elemento} ({direccion}){Config.NC}")
+        self.log_info(f"{self.config.BLUE}Sincronizando: {elemento} ({direccion}){self.config.NC}")
         
         # Construir comando rsync
         opts = self.construir_opciones_rsync()
@@ -642,6 +769,8 @@ class SyncBidireccional:
         """Procesa todos los elementos a sincronizar"""
         exit_code = 0
         
+        elementos = self.get_lista_sincronizacion()
+        
         if self.items_especificos:
             self.log_info(f"Sincronizando {len(self.items_especificos)} elementos específicos")
             for elemento in self.items_especificos:
@@ -649,19 +778,11 @@ class SyncBidireccional:
                     exit_code = 1
                 print("-" * 50)
         else:
-            # Leer elementos del archivo de lista
-            try:
-                with open(self.lista_sincronizacion, 'r', encoding='utf-8') as f:
-                    lineas = [linea.strip() for linea in f if linea.strip() and not linea.startswith('#')]
-                
-                self.log_info(f"Procesando lista de sincronización: {len(lineas)} elementos")
-                for linea in lineas:
-                    if not self.sincronizar_elemento(linea):
-                        exit_code = 1
-                    print("-" * 50)
-            except IOError as e:
-                self.log_error(f"Error leyendo archivo de lista: {e}")
-                return 1
+            self.log_info(f"Procesando lista de sincronización: {len(elementos)} elementos")
+            for elemento in elementos:
+                if not self.sincronizar_elemento(elemento):
+                    exit_code = 1
+                print("-" * 50)
         
         return exit_code
     
@@ -680,7 +801,7 @@ class SyncBidireccional:
         try:
             self.log_info("Generando archivo de enlaces simbólicos...")
             
-            elementos = self.items_especificos if self.items_especificos else self.leer_elementos_lista()
+            elementos = self.items_especificos if self.items_especificos else self.get_lista_sincronizacion()
             
             for elemento in elementos:
                 ruta_completa = self.config.LOCAL_DIR / elemento
@@ -717,20 +838,6 @@ class SyncBidireccional:
             if os.path.exists(archivo_enlaces.name):
                 os.unlink(archivo_enlaces.name)
     
-    def leer_elementos_lista(self):
-        """Lee los elementos del archivo de lista"""
-        elementos = []
-        try:
-            with open(self.lista_sincronizacion, 'r', encoding='utf-8') as f:
-                for linea in f:
-                    linea = linea.strip()
-                    if linea and not linea.startswith('#'):
-                        elementos.append(linea)
-        except IOError as e:
-            self.log_error(f"Error leyendo archivo de lista: {e}")
-        
-        return elementos
-    
     def registrar_enlace(self, enlace, archivo):
         """Registra un enlace simbólico en el archivo de metadatos"""
         try:
@@ -752,7 +859,7 @@ class SyncBidireccional:
             # Escribir en archivo
             archivo.write(f"{ruta_relativa}\t{destino}\n")
             self.enlaces_detectados += 1
-            self.log_info(f"Registrado enlace: {ruta_relativa} -> {destino}")
+            self.log_debug(f"Registrado enlace: {ruta_relativa} -> {destino}")  # Cambiado a debug
         except Exception as e:
             self.log_error(f"Error registrando enlace {enlace}: {e}")
     
@@ -829,7 +936,7 @@ class SyncBidireccional:
             if ruta_completa.is_symlink():
                 destino_actual = os.readlink(str(ruta_completa))
                 if destino_actual == destino:
-                    self.log_info(f"Enlace ya existe y es correcto: {ruta_enlace} -> {destino}")
+                    self.log_debug(f"Enlace ya existe y es correcto: {ruta_enlace} -> {destino}")  # Cambiado a debug
                     self.enlaces_existentes += 1
                     return True
                 # Eliminar enlace existente incorrecto
@@ -838,11 +945,11 @@ class SyncBidireccional:
             
             # Crear el enlace
             if self.dry_run:
-                self.log_info(f"SIMULACIÓN: ln -sfn '{destino}' '{ruta_completa}'")
+                self.log_debug(f"SIMULACIÓN: ln -sfn '{destino}' '{ruta_completa}'")  # Cambiado a debug
                 self.enlaces_creados += 1
             else:
                 os.symlink(destino, str(ruta_completa))
-                self.log_info(f"Creado enlace: {ruta_enlace} -> {destino}")
+                self.log_debug(f"Creado enlace: {ruta_enlace} -> {destino}")  # Cambiado a debug
                 self.enlaces_creados += 1
             
             return True
@@ -867,8 +974,9 @@ class SyncBidireccional:
         if self.delete:
             print(f"Archivos borrados en destino: {self.archivos_borrados}")
         
-        if self.exclusiones_cli:
-            print(f"Exclusiones CLI aplicadas: {len(self.exclusiones_cli)} patrones")
+        exclusiones = self.get_exclusiones()
+        if exclusiones:
+            print(f"Exclusiones aplicadas: {len(exclusiones)} patrones")
         
         print(f"Enlaces manejados: {self.enlaces_creados + self.enlaces_existentes}")
         print(f"  - Enlaces detectados/guardados: {self.enlaces_detectados}")
@@ -893,19 +1001,12 @@ class SyncBidireccional:
     
     def run_tests(self):
         """Ejecuta tests unitarios"""
-        # Esta es una implementación básica de tests
-        # En una implementación real, se usaría un framework como unittest o pytest
-        
         print("Ejecutando tests unitarios...")
         tests_pasados = 0
         tests_fallados = 0
         
-        # Test 1: normalize_path (simulado)
-        print("Test 1: normalize_path (simulado)")
-        tests_pasados += 1
-        
-        # Test 2: get_pcloud_dir
-        print("Test 2: get_pcloud_dir")
+        # Test 1: get_pcloud_dir
+        print("Test 1: get_pcloud_dir")
         self.backup_dir_mode = "comun"
         pcloud_dir_comun = self.get_pcloud_dir()
         self.backup_dir_mode = "readonly"
@@ -919,8 +1020,8 @@ class SyncBidireccional:
             tests_fallados += 1
             print("FAIL: get_pcloud_dir")
         
-        # Test 3: construir_opciones_rsync
-        print("Test 3: construir_opciones_rsync")
+        # Test 2: construir_opciones_rsync
+        print("Test 2: construir_opciones_rsync")
         self.overwrite = False
         self.dry_run = False
         self.delete = False
@@ -959,9 +1060,6 @@ class SyncBidireccional:
             # Procesar argumentos
             self.parse_arguments()
             
-            # Buscar archivos de configuración
-            self.find_config_files()
-            
             # Mostrar banner
             self.mostrar_banner()
             
@@ -979,6 +1077,13 @@ class SyncBidireccional:
             # Verificar pCloud montado
             if not self.verificar_pcloud_montado():
                 sys.exit(1)
+            
+            # Verificar conectividad
+            self.verificar_conectividad_pcloud()
+            
+            # Verificar espacio en disco
+            if not self.verificar_espacio_disco(500):  # 500 MB mínimo
+                self.log_warn("Espacio en disco bajo, pero continuando...")
             
             # Confirmar ejecución
             if not self.dry_run:
@@ -1016,8 +1121,9 @@ class SyncBidireccional:
                 f.write(f"Archivos transferidos: {self.archivos_transferidos}\n")
                 if self.delete:
                     f.write(f"Archivos borrados: {self.archivos_borrados}\n")
-                if self.exclusiones_cli:
-                    f.write(f"Exclusiones CLI aplicadas: {len(self.exclusiones_cli)}\n")
+                exclusiones = self.get_exclusiones()
+                if exclusiones:
+                    f.write(f"Exclusiones aplicadas: {len(exclusiones)}\n")
                 f.write(f"Modo dry-run: {'Sí' if self.dry_run else 'No'}\n")
                 f.write(f"Enlaces detectados/guardados: {self.enlaces_detectados}\n")
                 f.write(f"Enlaces creados: {self.enlaces_creados}\n")
