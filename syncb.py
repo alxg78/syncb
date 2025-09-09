@@ -20,7 +20,16 @@ TAREAS PENDIENTES:
 - Cambio de permisos de ejecución (función ajustar_permisos_ejecutables)
 - Verificación más robusta de montaje pCloud (Python tiene una verificación más básica)
 - Mayor portabilidad (Bash tiene más compatibilidad con diferentes sistemas)
+- El archivo meta se genera correctamente durante la subida
+- Los enlaces se recrean apropiadamente durante la bajada
+- Los paths se normalizan correctamente entre diferentes sistemas
 - Manejo de temp files con cleanup automático
+- actualizar documentacion readme con nuevas caracteristicas
+- Mantén la versión Bash como principal por ahora, ya que está más completa y probada
+- Implementa las funcionalidades faltantes en Python gradualmente
+- Añade tests para verificar que ambas versiones se comportan igual
+- Documenta las diferencias entre ambas implementaciones
+- La versión Python tiene potencial a largo plazo por ser más mantenible, pero necesita alcanzar la paridad de funcionalidades con la versión Bash.
 """
 
 import os
