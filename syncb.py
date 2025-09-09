@@ -1036,7 +1036,7 @@ class SyncBidireccional:
                         try:
                             if not self.dry_run:
                                 archivo.chmod(archivo.stat().st_mode | 0o111)
-                            self.log_info(f"Permisos de ejecución añadidos: {archivo}")
+                            self.log_debug(f"Permisos de ejecución añadidos: {archivo}")
                         except Exception as e:
                             self.log_error(f"Error añadiendo permisos a {archivo}: {e}")
                             exit_code = 1
@@ -1047,13 +1047,13 @@ class SyncBidireccional:
                     try:
                         if not self.dry_run:
                             archivo.chmod(archivo.stat().st_mode | 0o111)
-                        self.log_info(f"Permisos de ejecución añadidos: {archivo}")
+                        self.log_debug(f"Permisos de ejecución añadidos: {archivo}")
                     except Exception as e:
                         self.log_error(f"Error añadiendo permisos a {archivo}: {e}")
                         exit_code = 1
                 else:
                     self.log_warn(f"El archivo para permisos de ejecución no existe: {archivo}")
-                    
+                                
         return exit_code == 0
     
     def run_tests(self):
@@ -1151,6 +1151,11 @@ class SyncBidireccional:
             
             # Procesar elementos
             exit_code = self.procesar_elementos()
+            
+            # cambiar permisos de ficheros ejecutables cuando se bajan
+            if self.modo == "bajar":
+                if self.ajustar_permisos_ejecutables():
+                    self.log_info(f"Permisos de ejecución añadidos")
             
             # Manejar enlaces simbólicos
             if not self.manejar_enlaces_simbolicos():
