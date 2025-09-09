@@ -1171,8 +1171,8 @@ procesar_linea_enlace() {
         destino_actual=$(readlink "$ruta_completa" 2>/dev/null || true)
 
         if [ "$destino_actual" = "$destino_para_ln" ]; then
-            log_debug "Enlace ya existe y es correcto: $ruta_enlace"
-            log_info "Enlace ya existe y es correcto: $ruta_enlace -> $destino_para_ln"
+            #log_debug "Enlace ya existe y es correcto: $ruta_enlace"
+            log_debug "Enlace ya existe y es correcto: $ruta_enlace -> $destino_para_ln"
             ENLACES_EXISTENTES=$((ENLACES_EXISTENTES + 1))
             return 0
         fi
@@ -1181,12 +1181,12 @@ procesar_linea_enlace() {
 
     # Crear el enlace
     if [ $DRY_RUN -eq 1 ]; then
-        log_info "SIMULACIÓN: ln -sfn '$destino_para_ln' '$ruta_completa'"
+        #log_info "SIMULACIÓN: ln -sfn '$destino_para_ln' '$ruta_completa'"
         log_debug "SIMULACIÓN: Enlace a crear: $ruta_completa -> $destino_para_ln"
         ENLACES_CREADOS=$((ENLACES_CREADOS + 1))
     else
         if ln -sfn "$destino_para_ln" "$ruta_completa" 2>/dev/null; then
-            log_info "Creado enlace: $ruta_enlace -> $destino_para_ln"
+            #log_info "Creado enlace: $ruta_enlace -> $destino_para_ln"
             log_debug "Enlace creado: $ruta_completa -> $destino_para_ln"
             ENLACES_CREADOS=$((ENLACES_CREADOS + 1))
         else
