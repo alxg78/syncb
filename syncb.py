@@ -9,6 +9,18 @@ un archivo TOML único.
 Uso:
     Para subir: python syncb.py --subir [opciones]
     Para bajar: python syncb.py --bajar [opciones]
+
+TAREAS PENDIENTES:
+- arregar los pash compuestos: path_base/"nuevo"
+- añadir a funcion y fichero de configuracion la opcion de cambio de permisos en los ficheros y ejecutables indicados
+- en que funcion crea (reconstruye lo enlaces simpolicos cuando) hacemos una bajada desde el fichero meta
+- mas mensajes de informacion y de debug 
+- Rotación automática de logs (Python solo tiene logging básico)
+- Notificaciones del sistema (Python no implementa enviar_notificacion)
+- Cambio de permisos de ejecución (función ajustar_permisos_ejecutables)
+- Verificación más robusta de montaje pCloud (Python tiene una verificación más básica)
+- Mayor portabilidad (Bash tiene más compatibilidad con diferentes sistemas)
+- Manejo de temp files con cleanup automático
 """
 
 import os
@@ -91,10 +103,8 @@ class Config:
         """Asigna valores de configuración a atributos de clase"""
         # Rutas y directorios
         paths = self.config_data.get('paths', {})
-        self.PCLOUD_MOUNT_POINT = Path(os.path.expanduser(os.path.expandvars(
-            paths.get('pcloud_mount_point', "~/pCloudDrive"))))
-        self.LOCAL_DIR = Path(os.path.expanduser(os.path.expandvars(
-            paths.get('local_dir', "~"))))
+        self.LOCAL_DIR = Path(os.path.expanduser(os.path.expandvars(paths.get('local_dir', "~"))))
+        self.PCLOUD_MOUNT_POINT = Path(os.path.expanduser(os.path.expandvars(paths.get('pcloud_mount_point', "~/pCloudDrive"))))
         self.PCLOUD_BACKUP_COMUN = Path(os.path.expanduser(os.path.expandvars(
             paths.get('pcloud_backup_comun', str(self.PCLOUD_MOUNT_POINT / "Backups" / "Backup_Comun")))))
         self.PCLOUD_BACKUP_READONLY = Path(os.path.expanduser(os.path.expandvars(
@@ -125,6 +135,10 @@ class Config:
         self.directorios_sincronizacion = general.get('directorios_sincronizacion', [])
         self.exclusiones = general.get('exclusiones', [])
 
+        # Permisos permisos_ejecutables
+        permisos_ejecutables = self.config_data.get('permisos_ejecutables', {})
+        self.PERMISOS_FILES = permisos_ejecutables.get('archivos', [])
+        
         # Colores para logging (códigos ANSI)
         colors = self.config_data.get('colors', {})
         # Procesar cada color para interpretar las secuencias de escape
@@ -997,6 +1011,42 @@ class SyncBidireccional:
         
         print(f"Modo: {'SIMULACIÓN' if self.dry_run else 'EJECUCIÓN REAL'}")
         print("=" * 50)
+        
+    def ajustar_permisos_ejecutables(self):
+        """Ajusta los permisos de ejecución de los archivos configurados"""
+        if 'permisos_ejecutables' not in self.config.config_data:
+            return True
+            
+        exit_code = 0
+        
+        for patron in self.config.PERMISOS_FILES:
+            # Si el patrón tiene *, usamos glob
+            if '*' in patron:
+                archivos = list(self.config.LOCAL_DIR.glob(patron))
+                for archivo in archivos:
+                    if archivo.is_file():
+                        try:
+                            if not self.dry_run:
+                                archivo.chmod(archivo.stat().st_mode | 0o111)
+                            self.log_info(f"Permisos de ejecución añadidos: {archivo}")
+                        except Exception as e:
+                            self.log_error(f"Error añadiendo permisos a {archivo}: {e}")
+                            exit_code = 1
+            else:
+                # Ruta específica
+                archivo = self.config.LOCAL_DIR / patron
+                if archivo.exists() and archivo.is_file():
+                    try:
+                        if not self.dry_run:
+                            archivo.chmod(archivo.stat().st_mode | 0o111)
+                        self.log_info(f"Permisos de ejecución añadidos: {archivo}")
+                    except Exception as e:
+                        self.log_error(f"Error añadiendo permisos a {archivo}: {e}")
+                        exit_code = 1
+                else:
+                    self.log_warn(f"El archivo para permisos de ejecución no existe: {archivo}")
+                    
+        return exit_code == 0
     
     def run_tests(self):
         """Ejecuta tests unitarios"""

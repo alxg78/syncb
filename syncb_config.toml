@@ -119,6 +119,15 @@ directorios_sincronizacion = [
     "Vínculos" 
 ]
 
+[permisos_ejecutables]
+archivos = [
+    ".config/dotfiles/*.sh",
+    ".local/bin/*.sh",
+    ".local/bin/*.py",
+    ".local/bin/*.jl",
+    ".local/bin/pcloud"
+]
+
 # Colores para logging (códigos ANSI)
 # Nota: En TOML, las cadenas literales con comillas simples no procesan secuencias de escape
 [colors]
