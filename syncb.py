@@ -149,6 +149,10 @@ class Config:
         self.LOG_MAX_SIZE_MB = logging_config.get('max_size_mb', 10)
         self.LOG_BACKUP_COUNT = logging_config.get('backup_count', 5)
 
+        # Configuración de notificaciones
+        notifications = self.config_data.get('notifications', {})
+        self.NOTIFICATIONS_ENABLED = notifications.get('enabled', True)
+    
         # Colores para logging (códigos ANSI)
         colors = self.config_data.get('colors', {})
         # Procesar cada color para interpretar las secuencias de escape
@@ -1097,6 +1101,11 @@ class SyncBidireccional:
             mensaje (str): Mensaje de la notificación
             tipo (str): Tipo de notificación (info, warning, error)
         """
+        
+        # Verificar si las notificaciones están habilitadas
+        if not self.config.NOTIFICATIONS_ENABLED:
+            return
+        
         try:
             sistema = platform.system()
             
