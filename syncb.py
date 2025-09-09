@@ -46,6 +46,7 @@ import platform
 import psutil
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Set, Any
+from logging.handlers import RotatingFileHandler
 
 try:
     import tomllib
@@ -147,6 +148,11 @@ class Config:
         permisos_ejecutables = self.config_data.get('permisos_ejecutables', {})
         self.PERMISOS_FILES = permisos_ejecutables.get('archivos', [])
         
+        # Logging (para log rotativos)
+        logging_config = self.config_data.get('logging', {})
+        self.LOG_MAX_SIZE_MB = logging_config.get('max_size_mb', 10)
+        self.LOG_BACKUP_COUNT = logging_config.get('backup_count', 5)
+
         # Colores para logging (códigos ANSI)
         colors = self.config_data.get('colors', {})
         # Procesar cada color para interpretar las secuencias de escape
@@ -222,9 +228,14 @@ class SyncBidireccional:
         # Configurar logging
         self.setup_logging()
         
+        # Comprobar rotación de logs
+        self.check_log_rotation()        
+        
         # Lock file
         self.LOCK_FILE = Path(tempfile.gettempdir()) / "syncb.lock"
     
+
+
     def setup_logging(self):
         """Configura el sistema de logging"""
         # Crear formateador personalizado con colores
@@ -260,13 +271,22 @@ class SyncBidireccional:
         console_handler.setFormatter(ColoredFormatter(self.config))
         self.logger.addHandler(console_handler)
         
-        # Handler para archivo (sin colores)
-        file_handler = logging.FileHandler(self.config.LOG_FILE, encoding='utf-8')
+        # Configurar rotación: 10MB por archivo, mantener 5 backups        
+        max_bytes = self.config.LOG_MAX_SIZE_MB * 1024 * 1024
+        backup_count = self.config.LOG_BACKUP_COUNT # Mantener 5 archivos de backup
+
+        # Handler para archivo (sin colores) con rotacion 
+        file_handler = RotatingFileHandler(
+            self.config.LOG_FILE, 
+            maxBytes=max_bytes, 
+            backupCount=backup_count,
+            encoding='utf-8'
+        )
         file_handler.setLevel(logging.INFO)
         file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         file_handler.setFormatter(file_formatter)
         self.logger.addHandler(file_handler)
-    
+        
     def log_info(self, msg):
         """Registra un mensaje informativo"""
         self.logger.info(msg)
@@ -1055,6 +1075,22 @@ class SyncBidireccional:
                     self.log_warn(f"El archivo para permisos de ejecución no existe: {archivo}")
                                 
         return exit_code == 0
+    
+    def check_log_rotation(self):
+        """Comprueba y realiza la rotación de logs si es necesario"""
+        try:
+            if self.config.LOG_FILE.exists():
+                # Rotar manualmente si el archivo actual excede el tamaño máximo
+                max_bytes = 10 * 1024 * 1024  # 10 MB
+                if self.config.LOG_FILE.stat().st_size > max_bytes:
+                    # Encontrar el manejador de archivo
+                    for handler in self.logger.handlers:
+                        if isinstance(handler, RotatingFileHandler):
+                            handler.doRollover()
+                            self.log_info("Log rotado automáticamente por tamaño")
+                            break
+        except Exception as e:
+            self.log_error(f"Error en rotación de logs: {e}")    
     
     def run_tests(self):
         """Ejecuta tests unitarios"""

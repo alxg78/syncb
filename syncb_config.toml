@@ -128,6 +128,10 @@ archivos = [
     ".local/bin/pcloud"
 ]
 
+[logging]
+max_size_mb = 10
+backup_count = 5
+
 # Colores para logging (códigos ANSI)
 # Nota: En TOML, las cadenas literales con comillas simples no procesan secuencias de escape
 [colors]
