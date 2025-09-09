@@ -1247,9 +1247,6 @@ class SyncBidireccional:
             if not self.manejar_enlaces_simbolicos():
                 exit_code = 1
             
-            # Mostrar estadísticas
-            self.mostrar_estadisticas()
-            
             # Notificar finalización
             if not self.dry_run:
                 tipo = "info" if exit_code == 0 else "error"
@@ -1274,7 +1271,10 @@ class SyncBidireccional:
         finally:
             # Eliminar lock
             self.eliminar_lock()
-            
+        
+            # Mostrar estadísticas
+            self.mostrar_estadisticas()
+                
             # Registrar en log
             with open(self.config.LOG_FILE, 'a', encoding='utf-8') as f:
                 f.write("=" * 50 + "\n")
