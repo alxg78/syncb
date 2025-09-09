@@ -121,9 +121,9 @@ class Config:
         self.HOSTNAME_RTVA = general.get('hostname_rtva', "feynman.rtva.dnf")
         self.DEFAULT_TIMEOUT_MINUTES = general.get('default_timeout_minutes', 30)
         
-        # Listas de sincronización y exclusión (directamente desde TOML)
-        self.directorios_sincronizacion = self.config_data.get('directorios_sincronizacion', [])
-        self.exclusiones = self.config_data.get('exclusiones', [])
+        # Listas de sincronización y exclusión (directamente desde TOML) (en la seccion general)
+        self.directorios_sincronizacion = general.get('directorios_sincronizacion', [])
+        self.exclusiones = general.get('exclusiones', [])
 
         # Colores para logging (códigos ANSI)
         colors = self.config_data.get('colors', {})
@@ -385,10 +385,9 @@ class SyncBidireccional:
             
         # Si el hostname es el de RTVA, buscar lista específica
         if self.hostname == self.config.HOSTNAME_RTVA:
-
             # Buscar lista específica en la configuración
             if 'host_specific' in self.config.config_data and self.hostname in self.config.config_data['host_specific']:
-                return self.config.config_data['host_specific'][self.hostname].get('directorios_sincronizacion', [".local/bin"])
+                return self.config.config_data['host_specific'][self.hostname].get('directorios_sincronizacion', [])
 
         # Devolver lista por defecto de la configuración
         return self.config.directorios_sincronizacion
@@ -770,7 +769,7 @@ class SyncBidireccional:
         exit_code = 0
         
         elementos = self.get_lista_sincronizacion()
-        
+ 
         if self.items_especificos:
             self.log_info(f"Sincronizando {len(self.items_especificos)} elementos específicos")
             for elemento in self.items_especificos:
