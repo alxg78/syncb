@@ -11,12 +11,8 @@ Uso:
     Para bajar: python syncb.py --bajar [opciones]
 
 TAREAS PENDIENTES:
-- añadir a funcion y fichero de configuracion la opcion de cambio de permisos en los ficheros y ejecutables indicados
 - en que funcion crea (reconstruye lo enlaces simpolicos cuando) hacemos una bajada desde el fichero meta
 - mas mensajes de informacion y de debug 
-- Rotación automática de logs (Python solo tiene logging básico)
-- Notificaciones del sistema (Python no implementa enviar_notificacion)
-- Cambio de permisos de ejecución (función ajustar_permisos_ejecutables)
 - Verificación más robusta de montaje pCloud (Python tiene una verificación más básica)
 - Mayor portabilidad (Bash tiene más compatibilidad con diferentes sistemas)
 - El archivo meta se genera correctamente durante la subida
@@ -1091,6 +1087,60 @@ class SyncBidireccional:
                             break
         except Exception as e:
             self.log_error(f"Error en rotación de logs: {e}")    
+ 
+    def enviar_notificacion(self, titulo, mensaje, tipo="info"):
+        """
+        Envía una notificación del sistema usando métodos nativos
+        
+        Args:
+            titulo (str): Título de la notificación
+            mensaje (str): Mensaje de la notificación
+            tipo (str): Tipo de notificación (info, warning, error)
+        """
+        try:
+            sistema = platform.system()
+            
+            if sistema == "Linux":
+                # Para Linux (GNOME, KDE, etc.) usando notify-send
+                urgencia = "normal"
+                if tipo == "error":
+                    urgencia = "critical"
+                elif tipo == "warning":
+                    urgencia = "normal"
+                
+                comando = [
+                    "notify-send", 
+                    "-u", urgencia,
+                    titulo,
+                    mensaje
+                ]
+                
+                # Intentar ejecutar el comando
+                subprocess.run(comando, check=False, timeout=5)
+                
+            elif sistema == "Darwin":  # macOS
+                # Para macOS usando osascript
+                script = f'display notification "{mensaje}" with title "{titulo}"'
+                comando = ["osascript", "-e", script]
+                subprocess.run(comando, check=False, timeout=5)
+                
+            elif sistema == "Windows":
+                # Para Windows usando powershell
+                script = f'[System.Windows.Forms.MessageBox]::Show("{mensaje}", "{titulo}")'
+                comando = ["powershell", "-Command", script]
+                subprocess.run(comando, check=False, timeout=5)
+                
+            else:
+                # Fallback: mostrar en terminal
+                self.log_info(f"🔔 {titulo}: {mensaje}")
+                
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            # Si falla el comando, mostrar en terminal
+            self.log_info(f"🔔 {titulo}: {mensaje}")
+        except Exception as e:
+            # Cualquier otro error, mostrar en terminal y log
+            self.log_info(f"🔔 {titulo}: {mensaje}")
+            self.log_debug(f"Error enviando notificación: {e}")
     
     def run_tests(self):
         """Ejecuta tests unitarios"""
@@ -1200,7 +1250,21 @@ class SyncBidireccional:
             # Mostrar estadísticas
             self.mostrar_estadisticas()
             
+            # Notificar finalización
+            if not self.dry_run:
+                tipo = "info" if exit_code == 0 else "error"
+                mensaje = (f"Sincronización {'completada' if exit_code == 0 else 'fallada'}\n"
+                          f"Elementos: {self.elementos_procesados}, "
+                          f"Transferidos: {self.archivos_transferidos}")
+                
+                self.enviar_notificacion(
+                    f"Sincronización {'Completada' if exit_code == 0 else 'Fallida'}",
+                    mensaje,
+                    tipo
+                )            
+            
             return exit_code
+            
         except KeyboardInterrupt:
             self.log_info("Operación cancelada por el usuario")
             return 1
