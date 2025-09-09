@@ -11,7 +11,6 @@ Uso:
     Para bajar: python syncb.py --bajar [opciones]
 
 TAREAS PENDIENTES:
-- arregar los pash compuestos: path_base/"nuevo"
 - añadir a funcion y fichero de configuracion la opcion de cambio de permisos en los ficheros y ejecutables indicados
 - en que funcion crea (reconstruye lo enlaces simpolicos cuando) hacemos una bajada desde el fichero meta
 - mas mensajes de informacion y de debug 
@@ -114,11 +113,11 @@ class Config:
         paths = self.config_data.get('paths', {})
         self.LOCAL_DIR = Path(os.path.expanduser(os.path.expandvars(paths.get('local_dir', "~"))))
         self.PCLOUD_MOUNT_POINT = Path(os.path.expanduser(os.path.expandvars(paths.get('pcloud_mount_point', "~/pCloudDrive"))))
-        self.PCLOUD_BACKUP_COMUN = Path(os.path.expanduser(os.path.expandvars(
+        self.PCLOUD_BACKUP_COMUN = self.PCLOUD_MOUNT_POINT / Path(os.path.expanduser(os.path.expandvars(
             paths.get('pcloud_backup_comun', str(self.PCLOUD_MOUNT_POINT / "Backups" / "Backup_Comun")))))
-        self.PCLOUD_BACKUP_READONLY = Path(os.path.expanduser(os.path.expandvars(
+        self.PCLOUD_BACKUP_READONLY = self.PCLOUD_MOUNT_POINT / Path(os.path.expanduser(os.path.expandvars(
             paths.get('pcloud_backup_readonly', str(self.PCLOUD_MOUNT_POINT / "pCloud Backup" / "feynman.sobremesa.dnf")))))
-        
+                
         # Ubicaciones de búsqueda de configuración
         self.CONFIG_SEARCH_PATHS = [
             os.path.expanduser(os.path.expandvars(path))

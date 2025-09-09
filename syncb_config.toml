@@ -1,9 +1,9 @@
 # Configuración de rutas y directorios
 [paths]
-pcloud_mount_point = "~/pCloudDrive"
 local_dir = "~"
-pcloud_backup_comun = "~/pCloudDrive/Backups/Backup_Comun"
-pcloud_backup_readonly = "~/pCloudDrive/pCloud Backup/feynman.sobremesa.dnf"
+pcloud_mount_point = "~/pCloudDrive"
+pcloud_backup_comun = "Backups/Backup_Comun"
+pcloud_backup_readonly = "pCloud Backup/feynman.sobremesa.dnf"
 
 # Ubicaciones donde buscar el archivo de configuración
 config_search_paths = [
