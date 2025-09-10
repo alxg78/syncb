@@ -13,12 +13,10 @@ Uso:
 TAREAS PENDIENTES:
 - en que funcion crea (reconstruye lo enlaces simpolicos cuando) hacemos una bajada desde el fichero meta
 - mas mensajes de informacion y de debug 
-- Verificación más robusta de montaje pCloud (Python tiene una verificación más básica)
 - Mayor portabilidad (Bash tiene más compatibilidad con diferentes sistemas)
 - El archivo meta se genera correctamente durante la subida
 - Los enlaces se recrean apropiadamente durante la bajada
 - Los paths se normalizan correctamente entre diferentes sistemas
-- Manejo de temp files con cleanup automático
 - actualizar documentacion readme con nuevas caracteristicas
 - Mantén la versión Bash como principal por ahora, ya que está más completa y probada
 - Implementa las funcionalidades faltantes en Python gradualmente
@@ -34,6 +32,7 @@ import logging
 import subprocess
 import shutil
 import tempfile
+import atexit
 import time
 import datetime
 import json
@@ -43,6 +42,7 @@ import psutil
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Set, Any
 from logging.handlers import RotatingFileHandler
+
 
 try:
     import tomllib
@@ -230,11 +230,161 @@ class SyncBidireccional:
         
         # Comprobar rotación de logs
         self.check_log_rotation()        
+                
+        # Lista para tracking de archivos temporales
+        self.temp_files = []
+        self.temp_dirs = []
+        
+        # Registrar cleanup al salir
+        atexit.register(self.cleanup_temporales)    
         
         # Lock file
-        self.LOCK_FILE = Path(tempfile.gettempdir()) / "syncb.lock"
-    
+        self.LOCK_FILE = Path(tempfile.gettempdir()) / "syncb.lock"        
 
+    def crear_temp_file(self, suffix='', prefix='syncb_', mode='w+b'):
+        """
+        Crea un archivo temporal y lo registra para cleanup automático
+        
+        Args:
+            suffix (str): Sufijo del archivo temporal
+            prefix (str): Prefijo del archivo temporal
+            mode (str): Modo de apertura del archivo
+            
+        Returns:
+            tempfile.NamedTemporaryFile: Objeto de archivo temporal
+        """
+        try:
+            temp_file = tempfile.NamedTemporaryFile(
+                mode=mode, 
+                suffix=suffix, 
+                prefix=prefix,
+                delete=False  # No eliminar automáticamente al cerrar
+            )
+            self.temp_files.append(temp_file.name)
+            self.log_debug(f"Archivo temporal creado: {temp_file.name}")
+            return temp_file
+        except Exception as e:
+            self.log_error(f"Error creando archivo temporal: {e}")
+            raise
+    
+    def crear_temp_dir(self, suffix='', prefix='syncb_'):
+        """
+        Crea un directorio temporal y lo registra para cleanup automático
+        
+        Args:
+            suffix (str): Sufijo del directorio temporal
+            prefix (str): Prefijo del directorio temporal
+            
+        Returns:
+            str: Ruta al directorio temporal creado
+        """
+        try:
+            temp_dir = tempfile.mkdtemp(suffix=suffix, prefix=prefix)
+            self.temp_dirs.append(temp_dir)
+            self.log_debug(f"Directorio temporal creado: {temp_dir}")
+            return temp_dir
+        except Exception as e:
+            self.log_error(f"Error creando directorio temporal: {e}")
+            raise
+    
+    def cleanup_temporales(self):
+        """
+        Elimina todos los archivos y directorios temporales registrados
+        """
+        deleted_files = 0
+        deleted_dirs = 0
+        
+        # Eliminar archivos temporales
+        for temp_file in self.temp_files[:]:
+            try:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+                    deleted_files += 1
+                    self.log_debug(f"Archivo temporal eliminado: {temp_file}")
+                self.temp_files.remove(temp_file)
+            except Exception as e:
+                self.log_error(f"Error eliminando archivo temporal {temp_file}: {e}")
+        
+        # Eliminar directorios temporales
+        for temp_dir in self.temp_dirs[:]:
+            try:
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
+                    deleted_dirs += 1
+                    self.log_debug(f"Directorio temporal eliminado: {temp_dir}")
+                self.temp_dirs.remove(temp_dir)
+            except Exception as e:
+                self.log_error(f"Error eliminando directorio temporal {temp_dir}: {e}")
+        
+        if deleted_files > 0 or deleted_dirs > 0:
+            self.log_info(f"Cleanup completado: {deleted_files} archivos y {deleted_dirs} directorios temporales eliminados")
+    
+    def registrar_temp_file(self, file_path):
+        """
+        Registra un archivo existente para cleanup automático
+        
+        Args:
+            file_path (str): Ruta al archivo a registrar
+        """
+        if os.path.exists(file_path):
+            self.temp_files.append(file_path)
+            self.log_debug(f"Archivo registrado para cleanup: {file_path}")
+    
+    def registrar_temp_dir(self, dir_path):
+        """
+        Registra un directorio existente para cleanup automático
+        
+        Args:
+            dir_path (str): Ruta al directorio a registrar
+        """
+        if os.path.exists(dir_path):
+            self.temp_dirs.append(dir_path)
+            self.log_debug(f"Directorio registrado para cleanup: {dir_path}")
+    
+    def manejo_temporal_context(self):
+        """
+        Context manager para manejo automático de temporales
+        """
+        class TemporalContext:
+            def __init__(self, parent):
+                self.parent = parent
+                self.files = []
+                self.dirs = []
+            
+            def __enter__(self):
+                return self
+            
+            def temp_file(self, *args, **kwargs):
+                file_obj = self.parent.crear_temp_file(*args, **kwargs)
+                self.files.append(file_obj.name)
+                return file_obj
+            
+            def temp_dir(self, *args, **kwargs):
+                dir_path = self.parent.crear_temp_dir(*args, **kwargs)
+                self.dirs.append(dir_path)
+                return dir_path
+            
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                # Cleanup de los temporales creados en este contexto
+                for file_path in self.files:
+                    if file_path in self.parent.temp_files:
+                        self.parent.temp_files.remove(file_path)
+                        try:
+                            if os.path.exists(file_path):
+                                os.unlink(file_path)
+                        except:
+                            pass
+                
+                for dir_path in self.dirs:
+                    if dir_path in self.parent.temp_dirs:
+                        self.parent.temp_dirs.remove(dir_path)
+                        try:
+                            if os.path.exists(dir_path):
+                                shutil.rmtree(dir_path)
+                        except:
+                            pass
+        
+        return TemporalContext(self)
 
     def setup_logging(self):
         """Configura el sistema de logging"""
@@ -943,47 +1093,46 @@ class SyncBidireccional:
     def generar_archivo_enlaces(self):
         """Genera el archivo de metadatos de enlaces simbólicos"""
         pcloud_dir = self.get_pcloud_dir()
-        archivo_enlaces = tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8')
         
-        try:
-            self.log_info("Generando archivo de enlaces simbólicos...")
+        # Usar el nuevo sistema de temporales
+        with self.manejo_temporal_context() as temp_ctx:
+            archivo_enlaces = temp_ctx.temp_file(suffix='.meta', mode='w')
             
-            elementos = self.items_especificos if self.items_especificos else self.get_lista_sincronizacion()
-            
-            for elemento in elementos:
-                ruta_completa = self.config.LOCAL_DIR / elemento
+            try:
+                self.log_info("Generando archivo de enlaces simbólicos...")
                 
-                if ruta_completa.is_symlink():
-                    self.registrar_enlace(ruta_completa, archivo_enlaces)
-                elif ruta_completa.is_dir():
-                    self.buscar_enlaces_en_directorio(ruta_completa, archivo_enlaces)
-            
-            archivo_enlaces.close()
-            
-            # Sincronizar archivo de enlaces a pCloud
-            if os.path.getsize(archivo_enlaces.name) > 0:
-                self.log_info("Sincronizando archivo de enlaces...")
-                opts = self.construir_opciones_rsync()
-                cmd = ["rsync"] + opts + [archivo_enlaces.name, f"{pcloud_dir}/{self.config.SYMLINKS_FILE}"]
+                elementos = self.items_especificos if self.items_especificos else self.get_lista_sincronizacion()
                 
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                if result.returncode == 0:
-                    self.log_info(f"Enlaces detectados/guardados en meta: {self.enlaces_detectados}")
-                    self.log_info("Archivo de enlaces sincronizado")
+                for elemento in elementos:
+                    ruta_completa = self.config.LOCAL_DIR / elemento
+                    
+                    if ruta_completa.is_symlink():
+                        self.registrar_enlace(ruta_completa, archivo_enlaces)
+                    elif ruta_completa.is_dir():
+                        self.buscar_enlaces_en_directorio(ruta_completa, archivo_enlaces)
+                
+                archivo_enlaces.close()
+                
+                # Sincronizar archivo de enlaces a pCloud
+                if os.path.getsize(archivo_enlaces.name) > 0:
+                    self.log_info("Sincronizando archivo de enlaces...")
+                    opts = self.construir_opciones_rsync()
+                    cmd = ["rsync"] + opts + [archivo_enlaces.name, f"{pcloud_dir}/{self.config.SYMLINKS_FILE}"]
+                    
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode == 0:
+                        self.log_info(f"Enlaces detectados/guardados en meta: {self.enlaces_detectados}")
+                        self.log_info("Archivo de enlaces sincronizado")
+                    else:
+                        self.log_error("Error sincronizando archivo de enlaces")
+                        return False
                 else:
-                    self.log_error("Error sincronizando archivo de enlaces")
-                    return False
-            else:
-                self.log_info("No se encontraron enlaces simbólicos para registrar")
-            
-            return True
-        except Exception as e:
-            self.log_error(f"Error generando archivo de enlaces: {e}")
-            return False
-        finally:
-            # Limpiar archivo temporal
-            if os.path.exists(archivo_enlaces.name):
-                os.unlink(archivo_enlaces.name)
+                    self.log_info("No se encontraron enlaces simbólicos para registrar")
+                
+                return True
+            except Exception as e:
+                self.log_error(f"Error generando archivo de enlaces: {e}")
+                return False
     
     def registrar_enlace(self, enlace, archivo):
         """Registra un enlace simbólico en el archivo de metadatos"""
@@ -1029,15 +1178,22 @@ class SyncBidireccional:
         
         self.log_info("Buscando archivo de enlaces...")
         
-        # Copiar archivo localmente
-        if archivo_enlaces_origen.exists():
-            shutil.copy2(str(archivo_enlaces_origen), str(archivo_enlaces_local))
-            self.log_info("Archivo de enlaces copiado localmente")
-        elif archivo_enlaces_local.exists():
-            self.log_info("Usando archivo de enlaces local existente")
-        else:
-            self.log_info("No se encontró archivo de enlaces, omitiendo recreación")
-            return True
+        # Usar el nuevo sistema de temporales
+        with self.manejo_temporal_context() as temp_ctx:
+            # Copiar archivo localmente si existe en pCloud
+            archivo_enlaces_origen = pcloud_dir / self.config.SYMLINKS_FILE
+            if archivo_enlaces_origen.exists():
+                shutil.copy2(str(archivo_enlaces_origen), str(archivo_enlaces_local))
+                self.log_info("Archivo de enlaces copiado localmente")
+                # Registrar para cleanup
+                self.registrar_temp_file(str(archivo_enlaces_local))
+            elif archivo_enlaces_local.exists():
+                self.log_info("Usando archivo de enlaces local existente")
+                # Registrar para cleanup
+                self.registrar_temp_file(str(archivo_enlaces_local))
+            else:
+                self.log_info("No se encontró archivo de enlaces, omitiendo recreación")
+                return True
         
         self.log_info("Recreando enlaces simbólicos...")
         exit_code = 0
@@ -1059,10 +1215,6 @@ class SyncBidireccional:
         except Exception as e:
             self.log_error(f"Error recreando enlaces: {e}")
             return False
-        finally:
-            # Limpiar archivo temporal
-            if not self.dry_run and archivo_enlaces_local.exists():
-                archivo_enlaces_local.unlink()
     
     def procesar_linea_enlace(self, ruta_enlace, destino):
         """Procesa una línea del archivo de enlaces"""
@@ -1414,6 +1566,10 @@ class SyncBidireccional:
                 f.write(f"Log: {self.config.LOG_FILE}\n")
                 f.write("=" * 50 + "\n")
 
+            # Cleanup de temporales (se ejecutará automáticamente por atexit,
+            # pero lo llamamos aquí también para limpieza inmediata)
+            self.cleanup_temporales()
+            
 
 if __name__ == "__main__":
     app = SyncBidireccional()
