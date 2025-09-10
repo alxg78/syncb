@@ -127,8 +127,7 @@ class Config:
         self.LISTA_ESPECIFICA_POR_DEFECTO_FILE = files.get('lista_especifica_por_defecto', "syncb_config.toml")
         self.EXCLUSIONES_FILE = files.get('exclusiones_file', "syncb_config.toml")
         self.SYMLINKS_FILE = files.get('symlinks_file', ".syncb_symlinks.meta")
-        self.LOG_FILE = Path(os.path.expanduser(os.path.expandvars(
-            files.get('log_file', "~/syncb.log"))))
+        self.LOG_FILE = Path(os.path.expanduser(os.path.expandvars(files.get('log_file', "~/syncb.log"))))
         
         # Configuración general
         general = self.config_data.get('general', {})
@@ -723,8 +722,7 @@ class SyncBidireccional:
         try:
             if sistema == "Linux":
                 # Verificar si el proceso pCloud está ejecutándose
-                result = subprocess.run(["pgrep", "-x", "pcloud"], 
-                                      capture_output=True, text=True)
+                result = subprocess.run(["pgrep", "-x", "pcloud"], capture_output=True, text=True)
                 if result.returncode == 0:
                     self.log_info("Cliente pCloud está ejecutándose")
                     return True
@@ -734,14 +732,12 @@ class SyncBidireccional:
             
             elif sistema == "Darwin":  # macOS
                 # Verificar procesos en macOS
-                result = subprocess.run(["pgrep", "-x", "pCloud"], 
-                                      capture_output=True, text=True)
+                result = subprocess.run(["pgrep", "-x", "pCloud"], capture_output=True, text=True)
                 return result.returncode == 0
             
             elif sistema == "Windows":
                 # Verificar procesos en Windows
-                result = subprocess.run(["tasklist", "/fi", "IMAGENAME eq pcloud.exe"], 
-                                      capture_output=True, text=True)
+                result = subprocess.run(["tasklist", "/fi", "IMAGENAME eq pcloud.exe"], capture_output=True, text=True)
                 return "pcloud.exe" in result.stdout
             
             else:
@@ -758,8 +754,7 @@ class SyncBidireccional:
         
         try:
             # Intentamos hacer un ping a pCloud
-            result = subprocess.run(["curl", "-s", "https://www.pcloud.com/"], 
-                                  capture_output=True, text=True, timeout=10)
+            result = subprocess.run(["curl", "-s", "https://www.pcloud.com/"], capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 self.log_info("Verificación de conectividad pCloud: OK")
                 return True
