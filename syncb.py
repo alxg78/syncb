@@ -441,60 +441,166 @@ class SyncBidireccional:
         return exclusiones
     
     def verificar_pcloud_montado(self):
-        """Verifica que pCloud esté montado correctamente"""
+        """Verifica que pCloud esté montado correctamente con comprobaciones robustas"""
         pcloud_dir = self.get_pcloud_dir()
         
-        # Verificar si el punto de montaje existe
+        # 1. Verificar si el punto de montaje existe
         if not self.config.PCLOUD_MOUNT_POINT.exists():
             self.log_error(f"El punto de montaje de pCloud no existe: {self.config.PCLOUD_MOUNT_POINT}")
+            self.log_info("Asegúrate de que pCloud Drive esté instalado y ejecutándose.")
             return False
         
-        # Verificar si el directorio está vacío (puede indicar que no está montado)
+        # 2. Verificar si el directorio está vacío (puede indicar que no está montado)
         try:
             if not any(self.config.PCLOUD_MOUNT_POINT.iterdir()):
                 self.log_error(f"El directorio de pCloud está vacío: {self.config.PCLOUD_MOUNT_POINT}")
+                self.log_info("Esto sugiere que pCloud Drive no está montado correctamente.")
                 return False
         except PermissionError:
             self.log_error(f"Sin permisos para acceder al directorio: {self.config.PCLOUD_MOUNT_POINT}")
             return False
         
-        # Verificar usando comandos del sistema
-        system = platform.system()
+        # 3. Verificación robusta usando diferentes métodos según el sistema operativo
+        sistema = platform.system()
+        montado = False
+        
         try:
-            if system == "Linux":
-                # Verificar con findmnt
-                result = subprocess.run(["findmnt", "-rno", "TARGET", str(self.config.PCLOUD_MOUNT_POINT)], 
-                                      capture_output=True, text=True, check=False)
-                if result.returncode != 0:
-                    self.log_error(f"pCloud no aparece montado en {self.config.PCLOUD_MOUNT_POINT}")
-                    return False
-            elif system == "Darwin":  # macOS
-                # Verificar con mount
-                result = subprocess.run(["mount"], capture_output=True, text=True, check=False)
-                if str(self.config.PCLOUD_MOUNT_POINT) not in result.stdout:
-                    self.log_error(f"pCloud no aparece montado en {self.config.PCLOUD_MOUNT_POINT}")
-                    return False
+            if sistema == "Linux":
+                # Método 1: Usar findmnt (más preciso)
+                try:
+                    result = subprocess.run(["findmnt", "-rno", "TARGET", str(self.config.PCLOUD_MOUNT_POINT)], 
+                                          capture_output=True, text=True, timeout=5)
+                    montado = result.returncode == 0
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    # Método 2: Verificar /proc/mounts
+                    with open('/proc/mounts', 'r') as f:
+                        mounts = f.read()
+                    montado = str(self.config.PCLOUD_MOUNT_POINT) in mounts
+                
+                # Método 3: Usar mountpoint
+                if not montado:
+                    try:
+                        result = subprocess.run(["mountpoint", "-q", str(self.config.PCLOUD_MOUNT_POINT)], 
+                                              timeout=5, check=False)
+                        montado = result.returncode == 0
+                    except (subprocess.TimeoutExpired, FileNotFoundError):
+                        pass
+            
+            elif sistema == "Darwin":  # macOS
+                # Método: Usar mount y buscar el punto de montaje
+                result = subprocess.run(["mount"], capture_output=True, text=True, timeout=5)
+                montado = str(self.config.PCLOUD_MOUNT_POINT) in result.stdout
+            
+            else:
+                # Para otros sistemas, usar una verificación genérica
+                self.log_warn(f"Sistema operativo {sistema} no específicamente soportado")
+                
+                # Intentar verificar con df
+                try:
+                    result = subprocess.run(["df", str(self.config.PCLOUD_MOUNT_POINT)], 
+                                          capture_output=True, text=True, timeout=5)
+                    montado = result.returncode == 0
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    # Último recurso: verificar si podemos acceder al directorio
+                    try:
+                        montado = os.access(str(self.config.PCLOUD_MOUNT_POINT), os.R_OK)
+                    except:
+                        montado = False
+            
+            if not montado:
+                self.log_error(f"pCloud no aparece montado en {self.config.PCLOUD_MOUNT_POINT}")
+                return False
+        
         except Exception as e:
             self.log_error(f"Error verificando montaje: {e}")
-            return False
+            # Continuar con otras verificaciones a pesar del error
         
-        # Verificar si el directorio específico de pCloud existe
+        # 4. Verificar si el directorio específico de pCloud existe
         if not pcloud_dir.exists():
             self.log_error(f"El directorio de pCloud no existe: {pcloud_dir}")
+            self.log_info("Asegúrate de que:")
+            self.log_info("1. pCloud Drive esté ejecutándose")
+            self.log_info("2. Tu cuenta de pCloud esté sincronizada")
+            self.log_info("3. El directorio exista en tu pCloud")
             return False
         
-        # Verificar permisos de escritura (solo si no es dry-run y no es modo backup-dir)
+        # 5. Verificar permisos de escritura (solo si no es dry-run y no es modo backup-dir)
         if not self.dry_run and self.backup_dir_mode == "comun":
-            test_file = pcloud_dir / f".test_write_{os.getpid()}"
             try:
+                test_file = pcloud_dir / f".test_write_{os.getpid()}"
                 test_file.touch()
                 test_file.unlink()
-            except Exception:
-                self.log_error(f"No se puede escribir en: {pcloud_dir}")
+            except Exception as e:
+                self.log_error(f"No se puede escribir en: {pcloud_dir} - {e}")
                 return False
+        
+        # 6. Verificación adicional: intentar listar contenido
+        try:
+            # Intentar listar algunos elementos del directorio
+            list(pcloud_dir.iterdir())
+        except Exception as e:
+            self.log_error(f"Error accediendo al contenido de {pcloud_dir}: {e}")
+            return False
         
         self.log_info("Verificación de pCloud: OK - El directorio está montado y accesible")
         return True
+    
+    def verificar_espacio_pcloud(self):
+        """Verifica el espacio disponible en pCloud"""
+        pcloud_dir = self.get_pcloud_dir()
+        
+        try:
+            # Obtener uso de disco para el punto de montaje de pCloud
+            usage = shutil.disk_usage(str(self.config.PCLOUD_MOUNT_POINT))
+            libre_gb = usage.free / (1024**3)
+            total_gb = usage.total / (1024**3)
+            
+            self.log_info(f"Espacio en pCloud: {libre_gb:.2f} GB libres de {total_gb:.2f} GB")
+            
+            # Advertencia si queda menos de 1GB
+            if libre_gb < 1:
+                self.log_warn("Queda menos de 1GB de espacio en pCloud")
+                
+            return libre_gb
+        except Exception as e:
+            self.log_error(f"Error verificando espacio en pCloud: {e}")
+            return None
+
+    def verificar_estado_pcloud(self):
+        """Verifica el estado del cliente pCloud"""
+        sistema = platform.system()
+        
+        try:
+            if sistema == "Linux":
+                # Verificar si el proceso pCloud está ejecutándose
+                result = subprocess.run(["pgrep", "-x", "pcloud"], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    self.log_info("Cliente pCloud está ejecutándose")
+                    return True
+                else:
+                    self.log_warn("Cliente pCloud no parece estar ejecutándose")
+                    return False
+            
+            elif sistema == "Darwin":  # macOS
+                # Verificar procesos en macOS
+                result = subprocess.run(["pgrep", "-x", "pCloud"], 
+                                      capture_output=True, text=True)
+                return result.returncode == 0
+            
+            elif sistema == "Windows":
+                # Verificar procesos en Windows
+                result = subprocess.run(["tasklist", "/fi", "IMAGENAME eq pcloud.exe"], 
+                                      capture_output=True, text=True)
+                return "pcloud.exe" in result.stdout
+            
+            else:
+                self.log_warn(f"No se puede verificar estado de pCloud en {sistema}")
+                return None
+                
+        except Exception as e:
+            self.log_error(f"Error verificando estado de pCloud: {e}")
+            return None    
     
     def verificar_conectividad_pcloud(self):
         """Verifica la conectividad con pCloud"""
@@ -1225,11 +1331,15 @@ class SyncBidireccional:
                 self.log_info("sudo apt install rsync  # Debian/Ubuntu")
                 self.log_info("sudo dnf install rsync  # RedHat/CentOS")
                 sys.exit(1)
-            
-            # Verificar pCloud montado
+   
+            # Verificaciones mejoradas
             if not self.verificar_pcloud_montado():
+                self.verificar_estado_pcloud()
                 sys.exit(1)
-            
+                
+            # Verificar espacio en pCloud
+            self.verificar_espacio_pcloud()
+        
             # Verificar conectividad
             self.verificar_conectividad_pcloud()
             
