@@ -68,24 +68,24 @@ syncb.sh [--subir|--bajar] [OPCIONES]
 #+END_SRC
 
 ** Opciones Principales
-| Opción          | Descripción                                                                 |
-|-----------------|-----------------------------------------------------------------------------|
-| --subir         | Sincroniza local → pCloud                                                   |
-| --bajar         | Sincroniza pCloud → local                                                   |
-| --delete        | Elimina archivos obsoletos en destino                                       |
-| --dry-run       | Simula sin hacer cambios reales                                             |
-| --item ELEMENTO | Sincroniza solo el elemento especificado                                    |
-| --exclude PATRON| Excluye archivos que coincidan con el patrón (puede usarse múltiples veces) |
-| --yes           | Ejecuta sin confirmación                                                    |
-| --backup-dir    | Usa directorio de backup de solo lectura                                    |
-| --overwrite     | Sobrescribe archivos en destino                                             |
-| --checksum      | Usa checksum para comparación (más lento)                                   |
-| --bwlimit KB/s  | Limita velocidad de transferencia                                           |
-| --timeout MIN   | Límite de tiempo por operación (default: 30)                                |
-| --force-unlock  | Fuerza eliminación de lock obsoleto                                         |
-| --verbose       | Habilita modo verboso                                                       |
-| --test          | Ejecuta tests unitarios                                                     |
-| --help          | Muestra ayuda detallada                                                     |
+| Opción           | Descripción                                                                 |
+|------------------+-----------------------------------------------------------------------------|
+| --subir          | Sincroniza local → pCloud                                                   |
+| --bajar          | Sincroniza pCloud → local                                                   |
+| --delete         | Elimina archivos obsoletos en destino                                       |
+| --dry-run        | Simula sin hacer cambios reales                                             |
+| --item ELEMENTO  | Sincroniza solo el elemento especificado                                    |
+| --exclude PATRON | Excluye archivos que coincidan con el patrón (puede usarse múltiples veces) |
+| --yes            | Ejecuta sin confirmación                                                    |
+| --backup-dir     | Usa directorio de backup de solo lectura                                    |
+| --overwrite      | Sobrescribe archivos en destino                                             |
+| --checksum       | Usa checksum para comparación (más lento)                                   |
+| --bwlimit KB/s   | Limita velocidad de transferencia                                           |
+| --timeout MIN    | Límite de tiempo por operación (default: 30)                                |
+| --force-unlock   | Fuerza eliminación de lock obsoleto                                         |
+| --verbose        | Habilita modo verboso                                                       |
+| --test           | Ejecuta tests unitarios                                                     |
+| --help           | Muestra ayuda detallada                                                     |
 
 ** Ejemplos Comunes
 
