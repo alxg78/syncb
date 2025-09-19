@@ -5,6 +5,8 @@
 * Descripción
 Script avanzado de sincronización bidireccional entre directorio local y pCloud Drive con capacidades de backup, manejo de enlaces simbólicos y sistema de logging.
 
+ATENCIÓN! los enlaces simbólicos van a estar continuamente creándose y borrándose, por tanto si esto ficheros se están borrando y creando en un directorio que esta siendo *gestionado con git*, continuamente *estarán solicitando commit*, puede ser buena idea incluir estos enlaces simbólicos en el fichero =.gitignore=
+
 * Características Principales
 - Sincronización bidireccional (subir/bajar)
 - Manejo de enlaces simbólicos
