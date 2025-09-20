@@ -45,59 +45,59 @@ mostrar_ayuda() {
 # Procesar argumentos
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --install_bash)
-            INSTALL_BASH=1
-            shift
-            ;;
-        --install_python)
-            INSTALL_PYTHON=1
-            shift
-            ;;
-        --install_julia)
-            INSTALL_JULIA=1
-            shift
-            ;;
-        --install_all)
-            INSTALL_BASH=1
-            INSTALL_PYTHON=1
-            INSTALL_JULIA=1
-            shift
-            ;;
-        --uninstall_bash)
-            UNINSTALL_BASH=1
-            shift
-            ;;
-        --uninstall_python)
-            UNINSTALL_PYTHON=1
-            shift
-            ;;
-        --uninstall_julia)
-            UNINSTALL_JULIA=1
-            shift
-            ;;
-        --uninstall_all)
-            UNINSTALL_ALL=1
-            shift
-            ;;
-        -y|--yes)
-            AUTO_MODE=1
-            shift
-            ;;
-        -h|--help)
-            mostrar_ayuda
-            exit 0
-            ;;
-        *)
-            echo "Opción desconocida: $1"
-            mostrar_ayuda
-            exit 1
-            ;;
+    --install_bash)
+        INSTALL_BASH=1
+        shift
+        ;;
+    --install_python)
+        INSTALL_PYTHON=1
+        shift
+        ;;
+    --install_julia)
+        INSTALL_JULIA=1
+        shift
+        ;;
+    --install_all)
+        INSTALL_BASH=1
+        INSTALL_PYTHON=1
+        INSTALL_JULIA=1
+        shift
+        ;;
+    --uninstall_bash)
+        UNINSTALL_BASH=1
+        shift
+        ;;
+    --uninstall_python)
+        UNINSTALL_PYTHON=1
+        shift
+        ;;
+    --uninstall_julia)
+        UNINSTALL_JULIA=1
+        shift
+        ;;
+    --uninstall_all)
+        UNINSTALL_ALL=1
+        shift
+        ;;
+    -y | --yes)
+        AUTO_MODE=1
+        shift
+        ;;
+    -h | --help)
+        mostrar_ayuda
+        exit 0
+        ;;
+    *)
+        echo "Opción desconocida: $1"
+        mostrar_ayuda
+        exit 1
+        ;;
     esac
 done
 
 # Si no se especificó ninguna opción, mostrar ayuda y salir
 if [ $INSTALL_BASH -eq 0 ] && [ $INSTALL_PYTHON -eq 0 ] && [ $INSTALL_JULIA -eq 0 ] &&
-   [ $UNINSTALL_BASH -eq 0 ] && [ $UNINSTALL_PYTHON -eq 0 ] && [ $UNINSTALL_JULIA -eq 0 ] && [ $UNINSTALL_ALL -eq 0 ]; then
+    [ $UNINSTALL_BASH -eq 0 ] && [ $UNINSTALL_PYTHON -eq 0 ] && [ $UNINSTALL_JULIA -eq 0 ] && [ $UNINSTALL_ALL -eq 0 ]; then
     mostrar_ayuda
     exit 0
 fi
@@ -105,7 +105,7 @@ fi
 # Verificar si el directorio destino existe
 if [ ! -d "$TARGET_DIR" ]; then
     echo "El directorio $TARGET_DIR no existe."
-    
+
     if [ $AUTO_MODE -eq 1 ]; then
         echo "Creando directorio $TARGET_DIR..."
         mkdir -p "$TARGET_DIR"
@@ -118,7 +118,7 @@ fi
 # Verificar si el directorio de configuración existe
 if [ ! -d "$CONFIG_DIR" ]; then
     echo "El directorio $CONFIG_DIR no existe."
-    
+
     if [ $AUTO_MODE -eq 1 ]; then
         echo "Creando directorio $CONFIG_DIR..."
         mkdir -p "$CONFIG_DIR"
@@ -135,6 +135,7 @@ fi
 # Archivos para cada versión
 BASH_FILES=(
     "syncb.sh"
+    "syncb_crypto.sh"
     "syncb_directorios.ini"
     "syncb_directorios_feynman.rtva.dnf.ini"
     "syncb_exclusiones.ini"
@@ -168,7 +169,7 @@ copiar_archivos() {
     local target_dir="$1"
     shift
     local files=("$@")
-    
+
     for file in "${files[@]}"; do
         # Verificar si el archivo fuente existe
         if [ ! -f "$file" ]; then
@@ -176,7 +177,7 @@ copiar_archivos() {
             ERRORES=$((ERRORES + 1))
             continue
         fi
-        
+
         # Verificar si el archivo destino ya existe
         if [ -f "$target_dir/$file" ]; then
             if [ $AUTO_MODE -eq 1 ]; then
@@ -204,7 +205,7 @@ copiar_archivos() {
             COPIADOS=$((COPIADOS + 1))
             echo "✅ $file (copiado)"
         fi
-        
+
         # Establecer permisos de ejecución para scripts
         if [[ "$file" == *.sh || "$file" == *.py ]]; then
             chmod +x "$target_dir/$file"
@@ -219,7 +220,7 @@ eliminar_archivos() {
     local target_dir="$1"
     shift
     local files=("$@")
-    
+
     for file in "${files[@]}"; do
         # Verificar si el archivo existe en destino
         if [ -f "$target_dir/$file" ]; then
