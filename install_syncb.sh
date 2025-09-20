@@ -135,7 +135,6 @@ fi
 # Archivos para cada versión
 BASH_FILES=(
     "syncb.sh"
-    "syncb_crypto.sh"
     "syncb_directorios.ini"
     "syncb_directorios_feynman.rtva.dnf.ini"
     "syncb_exclusiones.ini"
