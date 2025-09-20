@@ -96,7 +96,6 @@ construir_opciones_rsync() {
         --times
         --progress
         --whole-file
-        --no-links
         --itemize-changes
     )
 

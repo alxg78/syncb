@@ -11,7 +11,7 @@ IFS=$'\n\t'
 
 # Script: syncb.sh
 # Descripción: Sincronización bidireccional entre directorio local y pCloud
-# Uso: 
+# Uso:
 #   Subir: ./syncb.sh --subir [--delete] [--dry-run] [--item elemento] [--yes] [--overwrite]
 #   Bajar: ./syncb.sh --bajar [--delete] [--dry-run] [--item elemento] [--yes] [--backup-dir] [--overwrite]
 
@@ -82,21 +82,21 @@ SECONDS=0
 
 # Configuración de locking
 LOCK_FILE="${TMPDIR:-/tmp}/syncb.lock"
-LOCK_TIMEOUT=3600  # Tiempo máximo de bloqueo en segundos (1 hora)
+LOCK_TIMEOUT=3600 # Tiempo máximo de bloqueo en segundos (1 hora)
 
 # Temp files to cleanup
 TEMP_FILES=()
 
 # Definición de colores (códigos ANSI)
 # Ejemplo de uso: echo -e "${RED}cuerpo del texto.${NC}"
-RED='\033[0;31m'          # Error - Rojo
-GREEN='\033[0;32m'        # Success/Info - Verde
-YELLOW='\033[1;33m'       # Warning - Amarillo
-BLUE='\033[0;34m'         # Info/Debug - Azul
-MAGENTA='\033[0;35m'      # Debug - Magenta
-CYAN='\033[0;36m'         # Info - Cian
-WHITE='\033[1;37m'        # Default - Blanco
-NC='\033[0m'              # No Color (reset)
+RED='\033[0;31m'     # Error - Rojo
+GREEN='\033[0;32m'   # Success/Info - Verde
+YELLOW='\033[1;33m'  # Warning - Amarillo
+BLUE='\033[0;34m'    # Info/Debug - Azul
+MAGENTA='\033[0;35m' # Debug - Magenta
+CYAN='\033[0;36m'    # Info - Cian
+WHITE='\033[1;37m'   # Default - Blanco
+NC='\033[0m'         # No Color (reset)
 
 # Iconos Unicode
 CHECK_MARK="✓"
@@ -117,7 +117,6 @@ LOG_WARN="${YELLOW}${WARNING_ICON} [WARN]${NC}"
 LOG_ERROR="${RED}${CROSS_MARK} [ERROR]${NC}"
 LOG_SUCCESS="${GREEN}${CHECK_MARK} [SUCCESS]${NC}"
 LOG_DEBUG="${MAGENTA}${CLOCK_ICON} [DEBUG]${NC}"
-
 
 # =========================
 # Sistema de logging mejorado
@@ -154,12 +153,12 @@ log_debug() {
         registrar_log "[DEBUG] $1"
     fi
 }
-    
+
 # Función de logging optimizada con rotación automática
 registrar_log() {
     local message="$(date '+%Y-%m-%d %H:%M:%S') - $1"
-    echo "$message" >> "$LOG_FILE"
-    
+    echo "$message" >>"$LOG_FILE"
+
     # Rotación de logs si superan 10MB (solo en modo ejecución real)
     if [ $DRY_RUN -eq 0 ] && [ -f "$LOG_FILE" ]; then
         local log_size
@@ -170,18 +169,18 @@ registrar_log() {
             # Linux
             log_size=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
         fi
-        
-        if [ $log_size -gt 10000000 ]; then  # 10MB
+
+        if [ $log_size -gt 10000000 ]; then # 10MB
             mv "$LOG_FILE" "${LOG_FILE}.old"
             touch "$LOG_FILE"
             chmod 644 "$LOG_FILE" 2>/dev/null
-            log_info "Log rotado automáticamente (tamaño: $((log_size/1024/1024))MB)"
+            log_info "Log rotado automáticamente (tamaño: $((log_size / 1024 / 1024))MB)"
         fi
     fi
 }
 
 # Manejo mejorado de errores
-set -e  # Activar terminación en error
+set -e # Activar terminación en error
 trap 'log_error "Error crítico en línea $LINENO"; exit 1' ERR
 
 # =========================
@@ -215,18 +214,18 @@ get_pcloud_dir() {
 # Función para verificar conectividad con pCloud
 verificar_conectividad_pcloud() {
     log_debug "Verificando conectividad con pCloud..."
-    
+
     if ! command -v curl >/dev/null 2>&1; then
         log_warn "curl no disponible, omitiendo verificación de conectividad"
         return 0
     fi
-    
+
     local max_retries=3
     local timeout=5
     local retry_count=0
-    
+
     while [ $retry_count -lt $max_retries ]; do
-        if timeout ${timeout}s curl -s https://www.pcloud.com/ > /dev/null; then
+        if timeout ${timeout}s curl -s https://www.pcloud.com/ >/dev/null; then
             log_info "Verificación de conectividad pCloud: OK"
             return 0
         fi
@@ -234,7 +233,7 @@ verificar_conectividad_pcloud() {
         log_warn "Intento $retry_count/$max_retries: No se pudo conectar a pCloud"
         sleep 1
     done
-    
+
     log_error "No se pudo conectar a pCloud después de $max_retries intentos"
     log_info "Verifica tu conexión a Internet y que pCloud esté disponible"
     return 1
@@ -244,7 +243,7 @@ verificar_conectividad_pcloud() {
 find_config_files() {
     # Si el hostname es "${HOSTNAME_RTVA}", usar el archivo específico
     if [ "$HOSTNAME" = "${HOSTNAME_RTVA}" ]; then
-        
+
         # Primero buscar en el directorio del script
         if [ -f "${SCRIPT_DIR}/${LISTA_ESPECIFICA_POR_DEFECTO_FILE}" ]; then
             LISTA_SINCRONIZACION="${SCRIPT_DIR}/${LISTA_ESPECIFICA_POR_DEFECTO_FILE}"
@@ -268,20 +267,20 @@ find_config_files() {
             LISTA_SINCRONIZACION="./${LISTA_POR_DEFECTO_FILE}"
         fi
     fi
-    
+
     # Validar que el archivo de lista existe
     if [ -n "$LISTA_SINCRONIZACION" ] && [ ! -f "$LISTA_SINCRONIZACION" ]; then
         log_error "El archivo de lista no existe: $LISTA_SINCRONIZACION"
         exit 1
     fi
-    
+
     # Buscar archivo de exclusiones (igual para todos los hosts)
     if [ -f "${SCRIPT_DIR}/${EXCLUSIONES_FILE}" ]; then
         EXCLUSIONES="${SCRIPT_DIR}/${EXCLUSIONES_FILE}"
     elif [ -f "./${EXCLUSIONES_FILE}" ]; then
         EXCLUSIONES="./${EXCLUSIONES_FILE}"
     fi
-    
+
     # Validar que el archivo de exclusiones existe si se especificó
     if [ -n "$EXCLUSIONES" ] && [ ! -f "$EXCLUSIONES" ]; then
         log_error "El archivo de exclusiones no existe: $EXCLUSIONES"
@@ -305,10 +304,10 @@ mostrar_ayuda() {
     echo "  --backup-dir       Usa el directorio de backup de solo lectura (pCloud Backup) en lugar de Backup_Comun"
     echo "  --exclude PATRON   Excluye archivos que coincidan con el patrón (puede usarse múltiples veces)"
     echo "  --overwrite        Sobrescribe todos los archivos en destino (no usa --update)"
-    echo "  --checksum         Fuerza comparación con checksum (más lento)"  
+    echo "  --checksum         Fuerza comparación con checksum (más lento)"
     echo "  --bwlimit KB/s     Limita la velocidad de transferencia (ej: 1000 para 1MB/s)"
     echo "  --timeout MINUTOS  Límite de tiempo por operación (default: 30)"
-    echo "  --force-unlock     Forzando eliminación de lock"      
+    echo "  --force-unlock     Forzando eliminación de lock"
     echo "  --verbose          Habilita modo verboso para debugging"
     echo "  --test             Ejecutar tests unitarios"
     echo "  --help             Muestra esta ayuda"
@@ -316,13 +315,13 @@ mostrar_ayuda() {
     echo "Archivos de configuración:" >&2
     echo "  - Directorio del script: ${SCRIPT_DIR}/"
     echo "  - Directorio actual: $(pwd)/"
-    
+
     if [ "$HOSTNAME" = "${HOSTNAME_RTVA}" ]; then
         echo "  - Busca: ${LISTA_ESPECIFICA_POR_DEFECTO_FILE} (específico para este host)"
     else
         echo "  - Busca: ${LISTA_POR_DEFECTO_FILE} (por defecto)"
     fi
-    
+
     echo "  - Busca: ${EXCLUSIONES_FILE}"
     echo ""
     echo "Hostname detectado: ${HOSTNAME}" >&2
@@ -336,7 +335,7 @@ mostrar_ayuda() {
     echo "  syncb.sh --bajar --backup-dir --item documentos/ --yes"
     echo "  syncb.sh --subir --exclude '*.tmp' --exclude 'temp/'"
     echo "  syncb.sh --subir --overwrite     # Sobrescribe todos los archivos"
-    echo "  syncb.sh --subir --bwlimit 1000  # Sincronizar subiendo con límite de 1MB/s" 
+    echo "  syncb.sh --subir --bwlimit 1000  # Sincronizar subiendo con límite de 1MB/s"
     echo "  syncb.sh --subir --verbose       # Sincronizar con output verboso"
     echo "  syncb.sh --bajar --item Documentos/ --timeout 10  # Timeout corto de 10 minutos para una operación rápida"
     echo "  syncb.sh --force-unlock   # Forzar desbloqueo si hay un lock obsoleto"
@@ -345,18 +344,18 @@ mostrar_ayuda() {
 
 # Función para procesar argumentos de línea de comandos
 procesar_argumentos() {
-	# Procesar argumentos
-	if [ $# -eq 0 ] || [[ "$*" =~ --help ]]; then
-		log_error "Debes especificar al menos --subir o --bajar"
-		mostrar_ayuda
-		exit 1
-	fi
+    # Procesar argumentos
+    if [ $# -eq 0 ] || [[ "$*" =~ --help ]]; then
+        log_error "Debes especificar al menos --subir o --bajar"
+        mostrar_ayuda
+        exit 1
+    fi
 
-	log_debug "Argumentos recibidos: $*"
+    log_debug "Argumentos recibidos: $*"
 
-	# Verificación de argumentos duplicados (solo para opciones)
-	declare -A seen_opts
-	for ((i=1; i<=$#; i++)); do
+    # Verificación de argumentos duplicados (solo para opciones)
+    declare -A seen_opts
+    for ((i = 1; i <= $#; i++)); do
         arg="${!i}"
         if [[ "$arg" == --* ]] && [[ "$arg" != "--item" ]] && [[ "$arg" != "--exclude" ]]; then
             if [[ -v seen_opts["$arg"] ]]; then
@@ -365,55 +364,107 @@ procesar_argumentos() {
             fi
             seen_opts["$arg"]=1
         elif [[ "$arg" == --item ]] || [[ "$arg" == --exclude ]]; then
-            ((i++))  # Saltar el siguiente argumento (valor de --item o --exclude)
+            ((i++)) # Saltar el siguiente argumento (valor de --item o --exclude)
         fi
- 	done
+    done
 
     # Procesar cada argumento
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --subir)
-                [ -n "$MODO" ] && { log_error "No puedes usar --subir y --bajar simultáneamente"; exit 1; }
-                MODO="subir"; shift;;
-            --bajar)
-                [ -n "$MODO" ] && { log_error "No puedes usar --subir y --bajar simultáneamente"; exit 1; }
-                MODO="bajar"; shift;;
-            --delete)
-                DELETE=1; shift;;
-            --dry-run)
-                DRY_RUN=1; shift;;
-            --item)
-                [ -z "$2" ] && { log_error "--item requiere un argumento"; exit 1; }
-                ITEMS_ESPECIFICOS+=("$2"); shift 2;;
-            --exclude)
-                [ -z "$2" ] && { log_error "--exclude requiere un patrón"; exit 1; }
-                EXCLUSIONES_CLI+=("$2"); shift 2;;
-            --yes)
-                YES=1; shift;;
-            --backup-dir)
-                BACKUP_DIR_MODE="readonly"; shift;;
-            --overwrite)
-                OVERWRITE=1; shift;;
-            --checksum)
-                USE_CHECKSUM=1; shift;;
-            --bwlimit)
-                [ -z "$2" ] && { log_error "--bwlimit requiere un valor (KB/s)"; exit 1; }
-                BW_LIMIT="$2"; shift 2;;
-            --timeout)
-                [ -z "$2" ] && { log_error "--timeout requiere minutos"; exit 1; }
-                TIMEOUT_MINUTES="$2"; shift 2;;
-            --force-unlock)
-                log_warn "Forzando eliminación de lock: $LOCK_FILE"
-                rm -f "$LOCK_FILE"
-                exit 0;;
-            --verbose) 
-                VERBOSE=1; shift;;
-            --test)
-                run_tests; exit $?;;
-            -h|--help)
-                mostrar_ayuda; exit 0;;
-            *)
-                log_error "Opción desconocida: $1"; mostrar_ayuda; exit 1;;
+        --subir)
+            [ -n "$MODO" ] && {
+                log_error "No puedes usar --subir y --bajar simultáneamente"
+                exit 1
+            }
+            MODO="subir"
+            shift
+            ;;
+        --bajar)
+            [ -n "$MODO" ] && {
+                log_error "No puedes usar --subir y --bajar simultáneamente"
+                exit 1
+            }
+            MODO="bajar"
+            shift
+            ;;
+        --delete)
+            DELETE=1
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        --item)
+            [ -z "$2" ] && {
+                log_error "--item requiere un argumento"
+                exit 1
+            }
+            ITEMS_ESPECIFICOS+=("$2")
+            shift 2
+            ;;
+        --exclude)
+            [ -z "$2" ] && {
+                log_error "--exclude requiere un patrón"
+                exit 1
+            }
+            EXCLUSIONES_CLI+=("$2")
+            shift 2
+            ;;
+        --yes)
+            YES=1
+            shift
+            ;;
+        --backup-dir)
+            BACKUP_DIR_MODE="readonly"
+            shift
+            ;;
+        --overwrite)
+            OVERWRITE=1
+            shift
+            ;;
+        --checksum)
+            USE_CHECKSUM=1
+            shift
+            ;;
+        --bwlimit)
+            [ -z "$2" ] && {
+                log_error "--bwlimit requiere un valor (KB/s)"
+                exit 1
+            }
+            BW_LIMIT="$2"
+            shift 2
+            ;;
+        --timeout)
+            [ -z "$2" ] && {
+                log_error "--timeout requiere minutos"
+                exit 1
+            }
+            TIMEOUT_MINUTES="$2"
+            shift 2
+            ;;
+        --force-unlock)
+            log_warn "Forzando eliminación de lock: $LOCK_FILE"
+            rm -f "$LOCK_FILE"
+            exit 0
+            ;;
+        --verbose)
+            VERBOSE=1
+            shift
+            ;;
+        --test)
+            run_tests
+            exit $?
+            ;;
+        -h | --help)
+            mostrar_ayuda
+            exit 0
+            ;;
+        *)
+            log_error "Opción desconocida: $1"
+            mostrar_ayuda
+            exit 1
+            ;;
         esac
     done
 }
@@ -431,7 +482,7 @@ verificar_pcloud_montado() {
         log_info "Asegúrate de que pCloud Drive esté instalado y ejecutándose."
         return 1
     fi
-    
+
     # Verificación más robusta: comprobar si pCloud está realmente montado
     # 1. Verificar si el directorio está vacío (puede indicar que no está montado)
     log_debug "Verificando si el directorio de pCloud está vacío: $PCLOUD_MOUNT_POINT"
@@ -461,15 +512,15 @@ verificar_pcloud_montado() {
             exit 1
         fi
     fi
-    
-    # Verificación adicional con df (más genérica) 
+
+    # Verificación adicional con df (más genérica)
     log_debug "Verificando montaje con df..."
 
     if ! df -P "$PCLOUD_MOUNT_POINT" &>/dev/null; then
         log_error "pCloud no está montado correctamente en $PCLOUD_MOUNT_POINT"
         exit 1
     fi
-    
+
     # Verificar si el directorio específico de pCloud existe
     if [ ! -d "$PCLOUD_DIR" ]; then
         log_debug "El directorio de pCloud no existe: $PCLOUD_DIR"
@@ -480,7 +531,7 @@ verificar_pcloud_montado() {
         log_info "3. El directorio exista en tu pCloud"
         exit 1
     fi
-    
+
     # Verificación adicional: intentar escribir en el directorio (solo si no es dry-run y no es modo backup-dir)
     if [ $DRY_RUN -eq 0 ] && [ "$BACKUP_DIR_MODE" = "comun" ]; then
         log_debug "Verificando permisos de escritura en: $PCLOUD_DIR"
@@ -519,38 +570,38 @@ mostrar_banner() {
     else
         echo "DIRECTORIO: Backup común (Backup_Comun)"
     fi
-    
+
     if [ $DRY_RUN -eq 1 ]; then
         echo -e "ESTADO: ${YELLOW}MODO SIMULACIÓN${NC} (no se realizarán cambios)"
     fi
-    
+
     if [ $DELETE -eq 1 ]; then
         echo -e "BORRADO: ${GREEN}ACTIVADO${NC} (se eliminarán archivos obsoletos)"
     fi
-    
+
     if [ $YES -eq 1 ]; then
         echo "CONFIRMACIÓN: Automática (sin preguntar)"
     fi
-    
+
     if [ $OVERWRITE -eq 1 ]; then
         echo -e "SOBRESCRITURA: ${GREEN}ACTIVADA${NC}"
     else
         echo "MODO: SEGURO (--update activado)"
     fi
 
-	if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ] && [ -n "${ITEMS_ESPECIFICOS[0]}" ]; then
-		echo "ELEMENTOS ESPECÍFICOS: ${ITEMS_ESPECIFICOS[*]}"
-	else
-		echo "LISTA: ${LISTA_SINCRONIZACION:-No encontrada}"
-	fi
+    if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ] && [ -n "${ITEMS_ESPECIFICOS[0]}" ]; then
+        echo "ELEMENTOS ESPECÍFICOS: ${ITEMS_ESPECIFICOS[*]}"
+    else
+        echo "LISTA: ${LISTA_SINCRONIZACION:-No encontrada}"
+    fi
 
     echo "EXCLUSIONES: ${EXCLUSIONES:-No encontradas}"
-    
+
     # Exclusiones linea comandos EXCLUSIONES_CLI
     if [ ${#EXCLUSIONES_CLI[@]} -gt 0 ]; then
         echo "EXCLUSIONES CLI (${#EXCLUSIONES_CLI[@]} patrones):"
         for i in "${!EXCLUSIONES_CLI[@]}"; do
-            echo "  $((i+1)). ${EXCLUSIONES_CLI[$i]}"
+            echo "  $((i + 1)). ${EXCLUSIONES_CLI[$i]}"
         done
     fi
     echo "=========================================="
@@ -562,7 +613,7 @@ confirmar_ejecucion() {
         log_info "Confirmación automática (--yes): se procede con la sincronización"
         return
     fi
-    
+
     echo ""
     if [ -t 0 ]; then
         read -r -p "¿Desea continuar con la sincronización? [s/N]: " respuesta
@@ -591,9 +642,9 @@ inicializar_log() {
             # Linux
             LOG_SIZE=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
         fi
-        
+
         if [ $LOG_SIZE -gt 5242880 ]; then
-            : > "$LOG_FILE"
+            : >"$LOG_FILE"
         fi
     fi
 
@@ -611,7 +662,7 @@ inicializar_log() {
         [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ] && echo "Items específicos: ${ITEMS_ESPECIFICOS[*]}"
         echo "Lista sincronización: ${LISTA_SINCRONIZACION:-No encontrada}"
         echo "Exclusiones: ${EXCLUSIONES:-No encontradas}"
-    } >> "$LOG_FILE"
+    } >>"$LOG_FILE"
 }
 
 # Función para verificar dependencias
@@ -632,7 +683,7 @@ verificar_elementos_configuracion() {
     local errores=0
 
     log_info "Verificando existencia de todos los elementos en la configuración..."
-    
+
     if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
         # Verificar items específicos de línea de comandos
         for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
@@ -655,15 +706,15 @@ verificar_elementos_configuracion() {
         # Verificar elementos del archivo de configuración
         while IFS= read -r linea || [ -n "$linea" ]; do
             [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue
-            [[ -z "${linea// }" ]] && continue
-            
+            [[ -z "${linea// /}" ]] && continue
+
             # Validación de seguridad adicional
             if [[ "$linea" =~ (^|/)\.\.(/|$) ]] || [[ "$linea" =~ ^\.\./ ]] || [[ "$linea" =~ /\.\.$ ]]; then
                 log_error "Path traversal detectado en el archivo de configuración: $linea"
                 errores=1
                 continue
             fi
-            
+
             if [ "$MODO" = "subir" ]; then
                 if [ ! -e "${LOCAL_DIR}/${linea}" ]; then
                     log_error "El elemento '$linea' no existe en el directorio local: ${LOCAL_DIR}/${linea}"
@@ -675,14 +726,14 @@ verificar_elementos_configuracion() {
                     errores=1
                 fi
             fi
-        done < "$LISTA_SINCRONIZACION"
+        done <"$LISTA_SINCRONIZACION"
     fi
 
     if [ $errores -eq 1 ]; then
         log_error "Se encontraron errores en la configuración. Corrige los elementos antes de continuar."
         return 1
     fi
-    
+
     log_info "Todos los elementos verificados existen"
     return 0
 }
@@ -690,7 +741,7 @@ verificar_elementos_configuracion() {
 # Función para verificar archivos de configuración
 verificar_archivos_configuracion() {
     log_debug "Verificando archivos de configuración..."
-    
+
     # Verificar que el archivo de lista existe y es legible
     if [ ${#ITEMS_ESPECIFICOS[@]} -eq 0 ] && { [ -z "$LISTA_SINCRONIZACION" ] || [ ! -f "$LISTA_SINCRONIZACION" ]; }; then
         log_error "No se encontró el archivo de lista 'LISTA_POR_DEFECTO_FILE'"
@@ -700,25 +751,25 @@ verificar_archivos_configuracion() {
         log_info "O crea un archivo con la lista de rutas a sincronizar o usa --item"
         exit 1
     fi
-    
+
     # Verificar permisos de lectura del archivo de lista
     if [ -n "$LISTA_SINCRONIZACION" ] && [ ! -r "$LISTA_SINCRONIZACION" ]; then
         log_error "Sin permisos de lectura para el archivo de lista: $LISTA_SINCRONIZACION"
         exit 1
     fi
-    
+
     # Verificar que el archivo de lista no esté vacío
     if [ -n "$LISTA_SINCRONIZACION" ] && [ ! -s "$LISTA_SINCRONIZACION" ]; then
         log_error "El archivo de lista está vacío: $LISTA_SINCRONIZACION"
         exit 1
     fi
-    
+
     # Verificar archivo de exclusiones si se especificó
     if [ -n "$EXCLUSIONES" ] && [ ! -f "$EXCLUSIONES" ]; then
         log_error "El archivo de exclusiones no existe: $EXCLUSIONES"
         exit 1
     fi
-    
+
     # Verificar permisos de lectura del archivo de exclusiones
     if [ -n "$EXCLUSIONES" ] && [ ! -r "$EXCLUSIONES" ]; then
         log_error "Sin permisos de lectura para el archivo de exclusiones: $EXCLUSIONES"
@@ -732,15 +783,19 @@ construir_opciones_rsync() {
     log_debug "Construyendo opciones de rsync..."
 
     RSYNC_OPTS=(
-        --recursive 
-        --verbose 
-        --times 
-        --progress 
-        --whole-file 
-        --no-links 
+        --recursive
+        --verbose
+        --times
+        --progress
+        --munge-links
+        --whole-file
         --itemize-changes
     )
-    
+
+    # --no-links
+    # --links
+    # --copy-links
+
     [ $OVERWRITE -eq 0 ] && RSYNC_OPTS+=(--update)
     [ $DRY_RUN -eq 1 ] && RSYNC_OPTS+=(--dry-run)
     [ $DELETE -eq 1 ] && RSYNC_OPTS+=(--delete-delay)
@@ -749,11 +804,11 @@ construir_opciones_rsync() {
     # Límite de ancho de banda (si está configurado)
     log_debug "BW_LIMIT: ${BW_LIMIT:-no establecido}"
     [ -n "$BW_LIMIT" ] && RSYNC_OPTS+=(--bwlimit="$BW_LIMIT")
-    
+
     if [ -n "$EXCLUSIONES" ] && [ -f "$EXCLUSIONES" ]; then
         RSYNC_OPTS+=(--exclude-from="$EXCLUSIONES")
     fi
-        
+
     # Añadir exclusiones de línea de comandos
     if [ ${#EXCLUSIONES_CLI[@]} -gt 0 ]; then
         for patron in "${EXCLUSIONES_CLI[@]}"; do
@@ -761,7 +816,7 @@ construir_opciones_rsync() {
         done
         log_info "Exclusiones por CLI aplicadas: ${#EXCLUSIONES_CLI[@]} patrones"
     fi
-    
+
     log_debug "Opciones finales de rsync: ${RSYNC_OPTS[*]}"
 }
 
@@ -770,24 +825,24 @@ mostrar_estadísticas() {
     local tiempo_total=$SECONDS
     log_debug "Generando estadísticas. Tiempo total: $tiempo_total segundos."
     local horas=$((tiempo_total / 3600))
-    local minutos=$(( (tiempo_total % 3600) / 60 ))
+    local minutos=$(((tiempo_total % 3600) / 60))
     local segundos=$((tiempo_total % 60))
-    
+
     echo ""
     echo "=========================================="
     echo "RESUMEN DE SINCRONIZACIÓN"
     echo "=========================================="
     echo "Elementos procesados: $ELEMENTOS_PROCESADOS"
-    echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS" 
+    echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
     [ $DELETE -eq 1 ] && echo "Archivos borrados en destino: $ARCHIVOS_BORRADOS"
     [ ${#EXCLUSIONES_CLI[@]} -gt 0 ] && echo "Exclusiones CLI aplicadas: ${#EXCLUSIONES_CLI[@]} patrones"
     echo "Enlaces manejados: $((ENLACES_CREADOS + ENLACES_EXISTENTES))"
-    echo "  - Enlaces detectados/guardados: $ENLACES_DETECTADOS" 
+    echo "  - Enlaces detectados/guardados: $ENLACES_DETECTADOS"
     echo "  - Enlaces creados: $ENLACES_CREADOS"
     echo "  - Enlaces existentes: $ENLACES_EXISTENTES"
     echo "  - Enlaces con errores: $ENLACES_ERRORES"
     echo "Errores de sincronización: $ERRORES_SINCRONIZACION"
-    
+
     if [ $tiempo_total -ge 3600 ]; then
         echo "Tiempo total: ${horas}h ${minutos}m ${segundos}s"
     elif [ $tiempo_total -ge 60 ]; then
@@ -795,7 +850,7 @@ mostrar_estadísticas() {
     else
         echo "Tiempo total: ${segundos}s"
     fi
-    
+
     echo "Velocidad promedio: $((ARCHIVOS_TRANSFERIDOS / (tiempo_total > 0 ? tiempo_total : 1))) archivos/segundo"
     echo "Modo: $([ $DRY_RUN -eq 1 ] && echo 'SIMULACIÓN' || echo 'EJECUCIÓN REAL')"
     echo "=========================================="
@@ -803,11 +858,11 @@ mostrar_estadísticas() {
 
 # Función para verificar espacio disponible en disco
 verificar_espacio_disco() {
-    local needed_mb=${1:-100}  # MB mínimos por defecto: 100MB
+    local needed_mb=${1:-100} # MB mínimos por defecto: 100MB
     local available_mb
     local mount_point
     local tipo_operacion
-    
+
     log_debug "Verificando espacio en disco. Necesarios: $needed_mb MB."
 
     # Determinar el punto de montaje a verificar según el modo
@@ -839,11 +894,11 @@ verificar_espacio_disco() {
     if ! [[ "$available_mb" =~ ^[0-9]+$ ]]; then
         log_debug "No se pudo obtener el espacio disponible en $mount_point."
         log_warn "No se pudo determinar el espacio disponible en $mount_point, omitiendo verificación"
-        return 0  # Continuar a pesar de la advertencia
+        return 0 # Continuar a pesar de la advertencia
     fi
 
     if [ "$available_mb" -lt "$needed_mb" ]; then
-        log_error "Espacio insuficiente para $tipo_operacion en $mount_point" 
+        log_error "Espacio insuficiente para $tipo_operacion en $mount_point"
         log_error "Disponible: ${available_mb}MB, Necesario: ${needed_mb}MB"
         return 1
     fi
@@ -857,31 +912,31 @@ verificar_espacio_disco() {
 enviar_notificacion() {
     local titulo="$1"
     local mensaje="$2"
-    local tipo="${3:-info}"  # info, error, warning
-    
+    local tipo="${3:-info}" # info, error, warning
+
     # Para sistemas Linux con notify-send
-    if command -v notify-send >/dev/null 2>&1; then       
+    if command -v notify-send >/dev/null 2>&1; then
         # Determinar la urgencia según el tipo (nunca usar "low")
-        local urgencia="normal"  # Valor por defecto cambiado de "low" a "normal"
+        local urgencia="normal" # Valor por defecto cambiado de "low" a "normal"
         local icono="dialog-information"
         case "$tipo" in
-            error) 
-                urgencia="critical"
-                icono="dialog-error"
-                ;;
-            warning) 
-                urgencia="normal" 
-                icono="dialog-warning"
-                ;;
+        error)
+            urgencia="critical"
+            icono="dialog-error"
+            ;;
+        warning)
+            urgencia="normal"
+            icono="dialog-warning"
+            ;;
             # info ya usa "normal" por defecto
         esac
-        
+
         notify-send --urgency="$urgencia" --icon="$icono" "$titulo" "$mensaje"
-    
+
     # Para sistemas macOS
     elif command -v osascript >/dev/null 2>&1; then
         osascript -e "display notification \"$mensaje\" with title \"$titulo\""
-    
+
     # Fallback para terminal
     else
         echo -e "\n🔔 $titulo: $mensaje"
@@ -891,10 +946,10 @@ enviar_notificacion() {
 # Función para notificar finalización
 notificar_finalizacion() {
     local exit_code=$1
-    
+
     # Pequeña pausa para asegurar que todas las operaciones previas han terminado
     sleep 0.5
-    
+
     if [ $exit_code -eq 0 ]; then
         enviar_notificacion "Sincronización Completada" \
             "Sincronización finalizada con éxito\n• Elementos: $ELEMENTOS_PROCESADOS\n• Transferidos: $ARCHIVOS_TRANSFERIDOS\n• Tiempo: ${SECONDS}s" \
@@ -909,7 +964,7 @@ notificar_finalizacion() {
 # Función para obtener información del proceso dueño del lock
 obtener_info_proceso_lock() {
     local pid=$1
-    if ps -p $pid > /dev/null 2>&1; then
+    if ps -p $pid >/dev/null 2>&1; then
         echo "Dueño del lock: PID $pid, Comando: $(ps -p $pid -o comm=), Iniciado: $(ps -p $pid -o lstart=)"
     else
         echo "Dueño del lock: PID $pid (proceso ya terminado)"
@@ -924,11 +979,11 @@ establecer_lock() {
         local lock_time=$(stat -c %Y "$LOCK_FILE" 2>/dev/null || stat -f %m "$LOCK_FILE" 2>/dev/null)
         local current_time=$(date +%s)
         local lock_age=$((current_time - lock_time))
-        
+
         if [ $lock_age -gt $LOCK_TIMEOUT ]; then
             log_warn "Eliminando lock obsoleto (edad: ${lock_age}s > timeout: ${LOCK_TIMEOUT}s)"
             rm -f "$LOCK_FILE"
-        elif ps -p "$lock_pid" > /dev/null 2>&1; then
+        elif ps -p "$lock_pid" >/dev/null 2>&1; then
             log_error "Ya hay una ejecución en progreso (PID: $lock_pid)"
             log_error "$(obtener_info_proceso_lock $lock_pid)"
             return 1
@@ -937,12 +992,12 @@ establecer_lock() {
             rm -f "$LOCK_FILE"
         fi
     fi
-    
-    if ! echo $$ > "$LOCK_FILE"; then
+
+    if ! echo $$ >"$LOCK_FILE"; then
         log_error "No se pudo crear el archivo de lock: $LOCK_FILE"
         return 1
     fi
-    
+
     # Añadir información adicional al lock file
     {
         echo "PID: $$"
@@ -950,8 +1005,8 @@ establecer_lock() {
         echo "Modo: $MODO"
         echo "Usuario: $(whoami)"
         echo "Hostname: $(hostname)"
-    } >> "$LOCK_FILE"
-    
+    } >>"$LOCK_FILE"
+
     log_debug "Lock establecido para PID: $$"
     log_info "Lock establecido: $LOCK_FILE"
     return 0
@@ -960,7 +1015,7 @@ establecer_lock() {
 # Función para eliminar el lock
 eliminar_lock() {
     if [ -f "$LOCK_FILE" ] && [[ "$(head -n 1 "$LOCK_FILE" 2>/dev/null)" == "$$" ]]; then
-        log_debug "Eliminando lock para PID: $$" 
+        log_debug "Eliminando lock para PID: $$"
         rm -f "$LOCK_FILE"
         log_info "Lock eliminado"
     fi
@@ -982,7 +1037,7 @@ validate_rsync_opts() {
     for opt in "${RSYNC_OPTS[@]:-}"; do
         log_debug "Validando opción de rsync: $opt"
         # Si por alguna razón aparece la cadena 'rsync' en una opción, abortar
-       if echo "$opt" | grep -qi 'rsync'; then
+        if echo "$opt" | grep -qi 'rsync'; then
             log_error "RSYNC_OPTS contiene un elemento sospechoso con 'rsync': $opt"
             log_info "Contenido actual de RSYNC_OPTS:"
             declare -p RSYNC_OPTS
@@ -1047,7 +1102,7 @@ registrar_enlace() {
         fi
     fi
 
-    printf "%s\t%s\n" "$ruta_relativa" "$destino" >> "$archivo_enlaces"
+    printf "%s\t%s\n" "$ruta_relativa" "$destino" >>"$archivo_enlaces"
     log_debug "Registrado enlace simbólico: $ruta_relativa -> $destino"
     log_info "Registrado enlace: $ruta_relativa -> $destino"
     ENLACES_DETECTADOS=$((ENLACES_DETECTADOS + 1))
@@ -1057,10 +1112,10 @@ registrar_enlace() {
 buscar_enlaces_en_directorio() {
     local dir="$1"
     local archivo_enlaces="$2"
-    
+
     [ -d "$dir" ] || return
     log_debug "Buscando enlaces en directorio: $dir"
-    
+
     while IFS= read -r -d '' enlace; do
         registrar_enlace "$enlace" "$archivo_enlaces"
     done < <(find "$dir" -type l -print0 2>/dev/null)
@@ -1074,8 +1129,8 @@ generar_archivo_enlaces() {
 
     log_debug "Generando archivo de enlaces: $archivo_enlaces"
     log_info "Generando archivo de enlaces simbólicos..."
-    
-    : > "$archivo_enlaces" || {
+
+    : >"$archivo_enlaces" || {
         log_error "No se pudo crear el archivo temporal de enlaces"
         return 1
     }
@@ -1084,7 +1139,7 @@ generar_archivo_enlaces() {
         for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
             local ruta_completa="${LOCAL_DIR}/${elemento}"
             log_debug "Buscando enlaces para elemento específico: $ruta_completa"
-            
+
             if [ -L "$ruta_completa" ]; then
                 registrar_enlace "$ruta_completa" "$archivo_enlaces"
             elif [ -d "$ruta_completa" ]; then
@@ -1094,33 +1149,36 @@ generar_archivo_enlaces() {
     else
         while IFS= read -r elemento || [[ -n "$elemento" ]]; do
             [[ -n "$elemento" && ! "$elemento" =~ ^[[:space:]]*# ]] || continue
-            
+
             # Validación de seguridad adicional
             if [[ "$elemento" == *".."* ]]; then
                 log_error "Elemento contiene '..' - posible path traversal: $elemento"
                 continue
             fi
-            
+
             local ruta_completa="${LOCAL_DIR}/${elemento}"
             if [ -L "$ruta_completa" ]; then
                 registrar_enlace "$ruta_completa" "$archivo_enlaces"
             elif [ -d "$ruta_completa" ]; then
                 buscar_enlaces_en_directorio "$ruta_completa" "$archivo_enlaces"
             fi
-        done < "$LISTA_SINCRONIZACION"
+        done <"$LISTA_SINCRONIZACION"
     fi
 
     if [ -s "$archivo_enlaces" ]; then
         log_debug "Sincronizando archivo de enlaces a pCloud..."
         log_info "Sincronizando archivo de enlaces..."
         construir_opciones_rsync
-        validate_rsync_opts || { log_error "Abortando: RSYNC_OPTS inválido"; return 1; }
-        
-		# Imprimir comando de forma segura, si estamos en modo debugg
-		if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
-			print_rsync_command "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"
-		fi
-    
+        validate_rsync_opts || {
+            log_error "Abortando: RSYNC_OPTS inválido"
+            return 1
+        }
+
+        # Imprimir comando de forma segura, si estamos en modo debugg
+        if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
+            print_rsync_command "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"
+        fi
+
         if rsync "${RSYNC_OPTS[@]}" "$archivo_enlaces" "${PCLOUD_DIR}/${SYMLINKS_FILE}"; then
             log_info "Enlaces detectados/guardados en meta: $ENLACES_DETECTADOS"
             log_info "Archivo de enlaces sincronizado"
@@ -1136,7 +1194,7 @@ generar_archivo_enlaces() {
     rm -f "$archivo_enlaces"
 }
 
-# Función para recrear enlaces simbólicos 
+# Función para recrear enlaces simbólicos
 procesar_linea_enlace() {
     local ruta_enlace="$1"
     local destino="$2"
@@ -1147,7 +1205,7 @@ procesar_linea_enlace() {
     dir_padre=$(dirname "$ruta_completa")
 
     log_debug "Procesando enlace: $ruta_enlace -> $destino"
-    
+
     if [[ ! -d "$dir_padre" ]] && [[ $DRY_RUN -eq 0 ]]; then
         mkdir -p "$dir_padre"
     fi
@@ -1161,7 +1219,7 @@ procesar_linea_enlace() {
     # Validar que esté dentro de $HOME
     if [[ "$destino_para_ln" != "$HOME"* ]]; then
         log_debug "Destino de enlace fuera de HOME: $destino_para_ln"
-        log_warn "Destino de enlace fuera de \$HOME, se omite: $ruta_enlace -> $destino_para_ln" 
+        log_warn "Destino de enlace fuera de \$HOME, se omite: $ruta_enlace -> $destino_para_ln"
         return 0
     fi
 
@@ -1232,14 +1290,13 @@ recrear_enlaces_desde_archivo() {
         if ! procesar_linea_enlace "$ruta_enlace" "$destino"; then
             exit_code=1
         fi
-    done < "$archivo_enlaces_local"
+    done <"$archivo_enlaces_local"
 
     log_info "Enlaces recreados: $ENLACES_CREADOS, Errores: $ENLACES_ERRORES"
     [ $DRY_RUN -eq 0 ] && rm -f "$archivo_enlaces_local"
-    
+
     return $exit_code
 }
-
 
 # =========================
 # SINCRONIZACIÓN
@@ -1247,18 +1304,18 @@ recrear_enlaces_desde_archivo() {
 resolver_item_relativo() {
     local item="$1"
     REL_ITEM=""
-    
+
     if [[ -z "$item" ]]; then
         log_error "Elemento vacío recibido"
         return 1
     fi
-    
+
     # Detectar path traversal y caracteres peligrosos
     if [[ "$item" =~ (^|/)\.\.(/|$) ]] || [[ "$item" =~ ^\.\./ ]] || [[ "$item" =~ /\.\.$ ]]; then
         log_error "Path traversal detectado: $item"
         return 1
     fi
-    
+
     if [[ "$item" = /* ]]; then
         if [[ "$item" == "$LOCAL_DIR/"* ]]; then
             REL_ITEM="${item#${LOCAL_DIR}/}"
@@ -1269,7 +1326,7 @@ resolver_item_relativo() {
     else
         REL_ITEM="$item"
     fi
-    
+
     # Validación de seguridad adicional
     local REL_ITEM_ABS
     if [[ "$REL_ITEM" = /* ]]; then
@@ -1301,10 +1358,10 @@ resolver_item_relativo() {
 #   Devuelve el código de salida real de rsync
 # ---------------------------------------------------
 run_rsync() {
-    local output_file="$1"   # Archivo temporal
-    shift                    # Quitamos el primer parámetro
-    local timeout_minutes=${TIMEOUT_MINUTES:-30}  # Por defecto 30 minutos
-    local rc=0               # Aquí guardaremos el código de salida
+    local output_file="$1"                       # Archivo temporal
+    shift                                        # Quitamos el primer parámetro
+    local timeout_minutes=${TIMEOUT_MINUTES:-30} # Por defecto 30 minutos
+    local rc=0                                   # Aquí guardaremos el código de salida
 
     if command -v timeout >/dev/null 2>&1 && [ $DRY_RUN -eq 0 ]; then
         # Si existe el comando timeout y no estamos en simulación (dry-run)
@@ -1314,7 +1371,7 @@ run_rsync() {
         else
             timeout ${timeout_minutes}m "$@" > >(tee "$output_file") 2>&1
         fi
-        rc=$?   # Guardamos el código de salida de rsync/timeout
+        rc=$? # Guardamos el código de salida de rsync/timeout
     else
         # Si no hay timeout o estamos en dry-run
         if command -v stdbuf >/dev/null 2>&1; then
@@ -1427,9 +1484,12 @@ sincronizar_elemento() {
 
     # Construir y validar opciones de rsync
     construir_opciones_rsync
-    validate_rsync_opts || { log_error "RSYNC_OPTS inválido"; return 1; }
+    validate_rsync_opts || {
+        log_error "RSYNC_OPTS inválido"
+        return 1
+    }
 
-	# Imprimir comando de forma segura, si estamos en modo debugg
+    # Imprimir comando de forma segura, si estamos en modo debugg
     if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
         print_rsync_command "$origen" "$destino"
     fi
@@ -1450,7 +1510,7 @@ sincronizar_elemento() {
 
     # Limpiar archivo temporal
     rm -f "$temp_output"
-    TEMP_FILES=("${TEMP_FILES[@]/$temp_output}")
+    TEMP_FILES=("${TEMP_FILES[@]/$temp_output/}")
 
     # Resultado
     if [ $rc -eq 0 ]; then
@@ -1474,7 +1534,7 @@ sincronizar_elemento() {
 # =========================
 verificar_precondiciones() {
     log_debug "Verificando precondiciones..."
-    
+
     # Verificar pCloud montado
     if ! verificar_pcloud_montado; then
         log_error "Fallo en verificación de pCloud montado - abortando"
@@ -1482,10 +1542,10 @@ verificar_precondiciones() {
     else
         log_info "Verificación de pCloud montado: OK"
     fi
-    
+
     # Verificar conectividad (solo advertencia)
     verificar_conectividad_pcloud
-    
+
     # Verificar espacio en disco (solo en modo ejecución real)
     if [ $DRY_RUN -eq 0 ]; then
         if ! verificar_espacio_disco 500; then
@@ -1497,20 +1557,20 @@ verificar_precondiciones() {
     else
         log_debug "Modo dry-run: omitiendo verificación de espacio"
     fi
-    
+
     log_info "Todas las precondiciones verificadas correctamente"
     return 0
 }
 
 procesar_elementos() {
     local exit_code=0
-    
+
     if [ ${#ITEMS_ESPECIFICOS[@]} -gt 0 ]; then
         log_info "Sincronizando ${#ITEMS_ESPECIFICOS[@]} elementos específicos"
         for elemento in "${ITEMS_ESPECIFICOS[@]}"; do
             resolver_item_relativo "$elemento"
             log_debug "Procesando elemento: $elemento (relativo: $REL_ITEM)"
-            
+
             if [ -n "$REL_ITEM" ]; then
                 sincronizar_elemento "$REL_ITEM" || exit_code=1
                 ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
@@ -1523,13 +1583,13 @@ procesar_elementos() {
     else
         log_info "Procesando lista de sincronización: ${LISTA_SINCRONIZACION}"
         while IFS= read -r linea || [ -n "$linea" ]; do
-            [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue # Omite comentarios 
-            [[ -z "${linea// }" ]] && continue  # Omite líneas vacías o solo espacios           
+            [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue # Omite comentarios
+            [[ -z "${linea// /}" ]] && continue                           # Omite líneas vacías o solo espacios
             log_debug "Procesando elemento de lista: $linea"
             sincronizar_elemento "$linea" || exit_code=1
             ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
             echo "------------------------------------------"
-        done < "$LISTA_SINCRONIZACION"
+        done <"$LISTA_SINCRONIZACION"
     fi
 
     log_info "Procesados $ELEMENTOS_PROCESADOS elementos con código de salida: $exit_code"
@@ -1538,13 +1598,13 @@ procesar_elementos() {
 
 manejar_enlaces_simbolicos() {
     log_info "Manejando enlaces simbólicos..."
-    
+
     if [ "$MODO" = "subir" ]; then
         log_debug "Creando archivo temporal para enlaces"
         tmp_links=$(mktemp --tmpdir syncb_links.XXXXXX)
         chmod 600 "$tmp_links"
         TEMP_FILES+=("$tmp_links")
-        
+
         if generar_archivo_enlaces "$tmp_links"; then
             log_info "Archivo de enlaces generado correctamente"
         else
@@ -1560,7 +1620,7 @@ manejar_enlaces_simbolicos() {
             return 1
         fi
     fi
-    
+
     return 0
 }
 
@@ -1569,7 +1629,7 @@ sincronizar() {
     local exit_code=0
 
     log_info "Iniciando proceso de sincronización en modo: $MODO"
-    
+
     # Verificaciones previas
     if ! verificar_precondiciones; then
         log_error "Fallo en las precondiciones, abortando sincronización"
@@ -1617,7 +1677,7 @@ ajustar_permisos_ejecutables() {
     log_debug "Ajustando permisos de ejecución..."
 
     log_info "Ajustando permisos de ejecución..."
-    
+
     # Procesar cada argumento
     for patron in "$@"; do
         # Determinar el tipo de patrón
@@ -1641,14 +1701,14 @@ ajustar_permisos_ejecutables() {
             # Es una ruta específica
             local ruta_completa="${directorio_base}/${patron}"
             log_debug "Aplicando permisos a ruta específica: $ruta_completa"
-            
+
             # Verificar si la ruta existe
             if [ ! -e "$ruta_completa" ]; then
                 log_warn "La ruta no existe - $ruta_completa"
                 exit_code=1
                 continue
             fi
-            
+
             # Verificar que tenemos permisos de escritura
             if [ ! -w "$ruta_completa" ]; then
                 log_warn "Sin permisos de escritura para: $ruta_completa"
@@ -1698,7 +1758,7 @@ test_get_pcloud_dir() {
     local pcloud_dir_comun=$(get_pcloud_dir)
     BACKUP_DIR_MODE="readonly"
     local pcloud_dir_readonly=$(get_pcloud_dir)
-    
+
     if [[ "$pcloud_dir_comun" == "$PCLOUD_BACKUP_COMUN" && "$pcloud_dir_readonly" == "$PCLOUD_BACKUP_READONLY" ]]; then
         echo "PASS: get_pcloud_dir"
         tests_passed=$((tests_passed + 1))
@@ -1706,7 +1766,7 @@ test_get_pcloud_dir() {
         echo "FAIL: get_pcloud_dir - comun: $pcloud_dir_comun, readonly: $pcloud_dir_readonly"
         tests_failed=$((tests_failed + 1))
     fi
-} 
+}
 
 test_construir_opciones_rsync() {
     # Test 3: construir_opciones_rsync
@@ -1719,15 +1779,15 @@ test_construir_opciones_rsync() {
     BW_LIMIT=""
     construir_opciones_rsync
     local base_opts="${RSYNC_OPTS[*]}"
-    
+
     OVERWRITE=1
     construir_opciones_rsync
     local overwrite_opts="${RSYNC_OPTS[*]}"
-    
+
     DELETE=1
     construir_opciones_rsync
     local delete_opts="${RSYNC_OPTS[*]}"
- 
+
     # Verificar que las opciones cambian según los flags
     if [[ "$base_opts" != "$overwrite_opts" && "$base_opts" != "$delete_opts" ]]; then
         echo "PASS: construir_opciones_rsync"
@@ -1759,7 +1819,7 @@ test_verificacion_argumetos() {
     test_seen_opts=()
     local test_args=("--subir" "--subir" "--delete")
     local duplicate_detected=0
-    
+
     for arg in "${test_args[@]}"; do
         if [[ "$arg" == --* ]]; then
             if [[ -v test_seen_opts[$arg] ]]; then
@@ -1769,7 +1829,7 @@ test_verificacion_argumetos() {
             test_seen_opts["$arg"]=1
         fi
     done
-    
+
     if [ $duplicate_detected -eq 1 ]; then
         echo "PASS: detección de argumentos duplicados"
         tests_passed=$((tests_passed + 1))
@@ -1792,7 +1852,7 @@ test_verificar_espacio_disco() {
 
 test_verificar_conectividad_pcloud() {
     echo "Test verificar_conectividad_pcloud"
-    
+
     # Mock de curl exitoso
     curl() { return 0; }
     if verificar_conectividad_pcloud; then
@@ -1800,7 +1860,7 @@ test_verificar_conectividad_pcloud() {
     else
         echo "FAIL: verificar_conectividad_pcloud debería haber tenido éxito"
     fi
-    
+
     # Mock de curl fallido
     curl() { return 1; }
     if ! verificar_conectividad_pcloud; then
@@ -1808,7 +1868,7 @@ test_verificar_conectividad_pcloud() {
     else
         echo "FAIL: verificar_conectividad_pcloud debería haber fallado"
     fi
-    
+
     # Mock de curl no disponible
     unset curl
     if verificar_conectividad_pcloud; then
@@ -1820,14 +1880,14 @@ test_verificar_conectividad_pcloud() {
 
 test_sistema_notificaciones() {
     echo "Test sistema_notificaciones"
-    
+
     # Test notificación info
     if enviar_notificacion "Test Titulo" "Test Mensaje" "info"; then
         echo "PASS: notificación info enviada"
     else
         echo "FAIL: notificación info falló"
     fi
-    
+
     # Test notificación error
     if enviar_notificacion "Test Error" "Test Mensaje Error" "error"; then
         echo "PASS: notificación error enviada"
@@ -1838,80 +1898,80 @@ test_sistema_notificaciones() {
 
 test_manejo_enlaces_simbolicos() {
     echo "Test manejo_enlaces_simbolicos"
-    
+
     # Crear entorno de prueba
     local test_dir=$(mktemp -d)
     local link_file="${test_dir}/test_links.meta"
-    
+
     # Crear enlaces de prueba
     mkdir -p "${test_dir}/subdir"
-    echo "content" > "${test_dir}/file.txt"
+    echo "content" >"${test_dir}/file.txt"
     ln -s "${test_dir}/file.txt" "${test_dir}/link_file"
     ln -s "subdir" "${test_dir}/link_dir"
-    
+
     # Test registrar_enlace
     if registrar_enlace "${test_dir}/link_file" "$link_file"; then
         echo "PASS: registrar_enlace con archivo"
     else
         echo "FAIL: registrar_enlace con archivo"
     fi
-    
+
     if registrar_enlace "${test_dir}/link_dir" "$link_file"; then
         echo "PASS: registrar_enlace con directorio"
     else
         echo "FAIL: registrar_enlace con directorio"
     fi
-    
+
     # Test procesar_linea_enlace
     if procesar_linea_enlace "test_link" "${test_dir}/file.txt"; then
         echo "PASS: procesar_linea_enlace válido"
     else
         echo "FAIL: procesar_linea_enlace válido"
     fi
-    
+
     # Limpieza
     rm -rf "$test_dir"
 }
 
 test_sistema_locking() {
     echo "Test sistema_locking"
-    
+
     # Test establecer_lock
     if establecer_lock; then
         echo "PASS: establecer_lock exitoso"
     else
         echo "FAIL: establecer_lock falló"
     fi
-    
+
     # Test eliminar_lock
     if eliminar_lock; then
         echo "PASS: eliminar_lock exitoso"
     else
         echo "FAIL: eliminar_lock falló"
     fi
-    
+
     # Test con lock existente
-    echo "12345" > "$LOCK_FILE"
+    echo "12345" >"$LOCK_FILE"
     if ! establecer_lock; then
         echo "PASS: establecer_lock detectó lock existente"
     else
         echo "FAIL: establecer_lock debería haber detectado lock existente"
     fi
-    
+
     # Limpieza
     rm -f "$LOCK_FILE"
 }
 
 test_verificar_espacio_disco() {
     echo "Test verificar_espacio_disco"
-    
+
     # Test con espacio suficiente (1MB)
     if verificar_espacio_disco 1; then
         echo "PASS: verificar_espacio_disco con espacio suficiente"
     else
         echo "FAIL: verificar_espacio_disco con espacio suficiente"
     fi
-    
+
     # Test con espacio insuficiente (valor muy alto)
     if ! verificar_espacio_disco 1000000000; then
         echo "PASS: verificar_espacio_disco detectó espacio insuficiente"
@@ -1922,7 +1982,7 @@ test_verificar_espacio_disco() {
 
 test_procesar_argumentos() {
     echo "Test procesar_argumentos"
-    
+
     # Test argumentos válidos
     procesar_argumentos --subir --dry-run
     if [ "$MODO" = "subir" ] && [ $DRY_RUN -eq 1 ]; then
@@ -1930,14 +1990,14 @@ test_procesar_argumentos() {
     else
         echo "FAIL: procesar_argumentos con --subir --dry-run"
     fi
-    
+
     # Test argumentos inválidos
     if ! procesar_argumentos --invalid-argument 2>/dev/null; then
         echo "PASS: procesar_argumentos detectó argumento inválido"
     else
         echo "FAIL: procesar_argumentos debería haber detectado argumento inválido"
     fi
-    
+
     # Test argumentos duplicados
     if ! procesar_argumentos --subir --bajar 2>/dev/null; then
         echo "PASS: procesar_argumentos detectó argumentos conflictivos"
@@ -1948,47 +2008,47 @@ test_procesar_argumentos() {
 
 test_manejo_items_especificos() {
     echo "Test manejo_items_especificos"
-    
+
     # Crear entorno de prueba
     local test_dir=$(mktemp -d)
     mkdir -p "${test_dir}/documents"
-    echo "test" > "${test_dir}/documents/file.txt"
-    
+    echo "test" >"${test_dir}/documents/file.txt"
+
     # Test con item específico
     LOCAL_DIR="$test_dir"
     ITEMS_ESPECIFICOS=("documents/file.txt")
-    
+
     if resolver_item_relativo "documents/file.txt"; then
         echo "PASS: resolver_item_relativo con ruta relativa"
     else
         echo "FAIL: resolver_item_relativo con ruta relativa"
     fi
-    
+
     # Test con path traversal (debería fallar)
     if ! resolver_item_relativo "../etc/passwd"; then
         echo "PASS: resolver_item_relativo detectó path traversal"
     else
         echo "FAIL: resolver_item_relativo debería haber detectado path traversal"
     fi
-    
+
     # Limpieza
     rm -rf "$test_dir"
 }
 
 test_rotacion_logs() {
     echo "Test rotacion_logs"
-    
+
     # Crear log grande para prueba de rotación
     local test_log=$(mktemp)
     dd if=/dev/zero of="$test_log" bs=1M count=11 2>/dev/null
-    
+
     LOG_FILE="$test_log"
     if registrar_log "Test de rotación"; then
         echo "PASS: rotación de logs funcionó"
     else
         echo "FAIL: rotación de logs falló"
     fi
-    
+
     # Limpieza
     rm -f "$test_log"
 }
@@ -2000,13 +2060,13 @@ run_tests() {
     local tests_failed=0
 
     # Ejecutar tests existentes
-	test_normaliza_path
-	test_get_pcloud_dir
-	test_construir_opciones_rsync
-	test_resolver_item_relativo
-	test_verificacion_argumetos
-	test_verificar_espacio_disco
-    
+    test_normaliza_path
+    test_get_pcloud_dir
+    test_construir_opciones_rsync
+    test_resolver_item_relativo
+    test_verificacion_argumetos
+    test_verificar_espacio_disco
+
     # Ejecutar nuevos tests
     test_verificar_conectividad_pcloud
     test_sistema_notificaciones
@@ -2024,10 +2084,10 @@ run_tests() {
     echo "Tests pasados: $tests_passed"
     echo "Tests fallados: $tests_failed"
     echo "Total tests: $((tests_passed + tests_failed))"
-    
+
     # Limpieza final
     rm -f "$LOCK_FILE"
-    
+
     return $tests_failed
 }
 
@@ -2108,7 +2168,7 @@ notificar_finalizacion $exit_code
     echo "=========================================="
     echo "Sincronización finalizada: $(date)"
     echo "Elementos procesados: $ELEMENTOS_PROCESADOS"
-    echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS" 
+    echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
     [ $DELETE -eq 1 ] && echo "Archivos borrados: $ARCHIVOS_BORRADOS"
     [ ${#EXCLUSIONES_CLI[@]} -gt 0 ] && echo "Exclusiones CLI aplicadas: ${#EXCLUSIONES_CLI[@]}"
     echo "Modo dry-run: $([ $DRY_RUN -eq 1 ] && echo 'Sí' || echo 'No')"
@@ -2119,7 +2179,6 @@ notificar_finalizacion $exit_code
     echo "Errores generales: $ERRORES_SINCRONIZACION"
     echo "Log: $LOG_FILE"
     echo "=========================================="
-} >> "$LOG_FILE"
+} >>"$LOG_FILE"
 
-exit $exit_code 
-
+exit $exit_code
