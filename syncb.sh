@@ -42,10 +42,12 @@ readonly HOSTNAME=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "unk
 readonly HOSTNAME_RTVA="feynman.rtva.dnf"
 
 # Variables de configuración crypto
-readonly LOCAL_CRYPTO_DIR="$LOCAL_DIR/Crypto"
-readonly REMOTO_CRYPTO_DIR="$PCLOUD_MOUNT_POINT/Crypto Folder"
+readonly LOCAL_CRYPTO_DIR="${LOCAL_DIR}/Crypto"
+readonly REMOTO_CRYPTO_DIR="${PCLOUD_MOUNT_POINT}/Crypto Folder"
 readonly CLOUD_MOUNT_CHECK_FILE="mount.check"
-readonly CLOUD_MOUNT_CHECK="$REMOTO_CRYPTO_DIR/$CLOUD_MOUNT_CHECK_FILE"
+readonly CLOUD_MOUNT_CHECK="${REMOTO_CRYPTO_DIR}/${CLOUD_MOUNT_CHECK_FILE}"
+readonly REMOTE_KEEPASS_DIR="${PCLOUD_MOUNT_POINT}/Applications/Keepass2Android"
+readonly LOCAL_KEEPASS_DIR="${LOCAL_CRYPTO_DIR}/ficheros_sensibles/Keepass2Android"
 
 # Archivos de configuración (buscar en el directorio del script primero, luego en el directorio actual)
 readonly LOG_FILE="$HOME/syncb.log"
@@ -68,6 +70,7 @@ YES=0
 OVERWRITE=0
 BACKUP_DIR_MODE="comun"
 VERBOSE=0
+DEBUG=0
 USE_CHECKSUM=0
 BW_LIMIT=""
 SYNC_CRYPTO=1 # Por defecto sincronizar Crypto
@@ -157,7 +160,6 @@ log_success() {
     registrar_log "[SUCCESS] $msg"
 }
 
-DEBUG=0
 # Función de debug que se activa con DEBUG=1 o VERBOSE=1
 log_debug() {
     if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
@@ -488,7 +490,6 @@ verificar_pcloud_montado() {
 
     # Verificar si el punto de montaje de pCloud existe
     log_debug "Verificando montaje de pCloud en: $PCLOUD_MOUNT_POINT"
-
     if [[ ! -d "$PCLOUD_MOUNT_POINT" ]]; then
         log_error "El punto de montaje de pCloud no existe: $PCLOUD_MOUNT_POINT"
         log_info "Asegúrate de que pCloud Drive esté instalado y ejecutándose."
@@ -527,7 +528,6 @@ verificar_pcloud_montado() {
 
     # Verificación adicional con df (más genérica)
     log_debug "Verificando montaje con df..."
-
     if ! df -P "$PCLOUD_MOUNT_POINT" &>/dev/null; then
         log_error "pCloud no está montado correctamente en $PCLOUD_MOUNT_POINT"
         exit 1
@@ -553,6 +553,14 @@ verificar_pcloud_montado() {
             exit 1
         fi
         rm -f "$test_file"
+    fi
+
+    # Verifica montaje de la carpeta Crypto
+    log_debug "Verificando montaje de Crypto en: $REMOTO_CRYPTO_DIR"
+    if [ ! -f "$CLOUD_MOUNT_CHECK" ] && [ "$SYNC_CRYPTO" = 1 ]; then
+        log_error "El volumen Crypto no está montado o el archivo de verificación no existe"
+        log_error "Por favor, desbloquea/monta la unidad en: \"$REMOTO_CRYPTO_DIR\""
+        exit 1
     fi
 
     log_debug "Verificación de pCloud completada con éxito."
@@ -1127,7 +1135,7 @@ registrar_enlace() {
 
     printf "%s\t%s\n" "$ruta_relativa" "$destino" >>"$archivo_enlaces"
     log_debug "Registrado enlace simbólico: $ruta_relativa -> $destino"
-    log_info "Registrado enlace: $ruta_relativa -> $destino"
+    #log_info "Registrado enlace: $ruta_relativa -> $destino"
     ENLACES_DETECTADOS=$((ENLACES_DETECTADOS + 1))
 }
 
@@ -1151,7 +1159,7 @@ generar_archivo_enlaces() {
     PCLOUD_DIR=$(get_pcloud_dir)
 
     log_debug "Generando archivo de enlaces: $archivo_enlaces"
-    log_info "Generando archivo de enlaces simbólicos..."
+    #log_info "Generando archivo de enlaces simbólicos..."
 
     : >"$archivo_enlaces" || {
         log_error "No se pudo crear el archivo temporal de enlaces"
@@ -1190,7 +1198,7 @@ generar_archivo_enlaces() {
 
     if [ -s "$archivo_enlaces" ]; then
         log_debug "Sincronizando archivo de enlaces a pCloud..."
-        log_info "Sincronizando archivo de enlaces..."
+        #log_info "Sincronizando archivo de enlaces..."
         construir_opciones_rsync
         validate_rsync_opts || {
             log_error "Abortando: RSYNC_OPTS inválido"
@@ -1210,8 +1218,8 @@ generar_archivo_enlaces() {
             return 1
         fi
     else
-        log_debug "No se encontraron enlaces simbólicos."
-        log_info "No se encontraron enlaces simbólicos para registrar"
+        log_debug "No se encontraron enlaces simbólicos para registrar"
+        #log_info "No se encontraron enlaces simbólicos para registrar"
     fi
 
     rm -f "$archivo_enlaces"
@@ -1288,7 +1296,7 @@ recrear_enlaces_desde_archivo() {
     local exit_code=0
 
     log_debug "Buscando archivo de enlaces en: $archivo_enlaces_origen"
-    log_info "Buscando archivo de enlaces..."
+    #log_info "Buscando archivo de enlaces..."
 
     if [ -f "$archivo_enlaces_origen" ]; then
         cp -f "$archivo_enlaces_origen" "$archivo_enlaces_local"
@@ -1296,8 +1304,8 @@ recrear_enlaces_desde_archivo() {
     elif [ -f "$archivo_enlaces_local" ]; then
         log_info "Usando archivo de enlaces local existente"
     else
-        log_debug "No se encontró archivo de enlaces."
-        log_info "No se encontró archivo de enlaces, omitiendo recreación"
+        log_debug "No se encontró archivo de enlaces, omitiendo recreación"
+        #log_info "No se encontró archivo de enlaces, omitiendo recreación"
         return 0
     fi
 
@@ -1560,28 +1568,9 @@ sincronizar_elemento() {
 # =========================
 # Funciones para sincronización Crypto
 # =========================
-verificar_montaje_crypto() {
-    log_debug "Verificando montaje de Crypto en: $REMOTO_CRYPTO_DIR"
-
-    if [ ! -f "$CLOUD_MOUNT_CHECK" ]; then
-        log_error "El volumen Crypto no está montado o el archivo de verificación no existe"
-        log_error "Por favor, desbloquea/monta la unidad en: \"$REMOTO_CRYPTO_DIR\""
-        return 1
-    fi
-
-    #log_info "Verificación de montaje Crypto exitosa"
-    return 0
-}
 
 # Función para sincronizar directorio Crypto
 sincronizar_crypto() {
-
-    # Verificar montaje de Crypto
-    if ! verificar_montaje_crypto; then
-        log_error "Fallo en verificación de montaje Crypto - abortando sincronización Crypto"
-        return 1
-    fi
-
     # Preparar rutas según el modo (subir/bajar)
     if [ "$MODO" = "subir" ]; then
         origen="$LOCAL_CRYPTO_DIR"
@@ -1635,6 +1624,12 @@ sincronizar_crypto() {
             CRYPTO_RSYNC_OPTS+=(--exclude="$patron")
         done
     fi
+
+    # Sincroniza KeePass2Android (pcloud -> ~/Cripto)
+    if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
+        print_rsync_command "$REMOTE_KEEPASS_DIR" "$LOCAL_KEEPASS_DIR" CRYPTO_RSYNC_OPTS
+    fi
+    rsync "${CRYPTO_RSYNC_OPTS[@]}" "$REMOTE_KEEPASS_DIR" "$LOCAL_KEEPASS_DIR"
 
     # Imprimir comando de forma segura, si estamos en modo debugg
     if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
@@ -1834,9 +1829,9 @@ sincronizar() {
 ajustar_permisos_ejecutables() {
     local directorio_base="${LOCAL_DIR}"
     local exit_code=0
-    log_debug "Ajustando permisos de ejecución..."
 
-    log_info "Ajustando permisos de ejecución..."
+    log_debug "Ajustando permisos de ejecución..."
+    #log_info "Ajustando permisos de ejecución..."
 
     # Procesar cada argumento
     for patron in "$@"; do
@@ -1849,7 +1844,7 @@ ajustar_permisos_ejecutables() {
             archivo_patron="$(basename "$patron")"
 
             if [ -d "$directorio_patron" ]; then
-                log_info "Aplicando permisos a: $patron (recursivo)"
+                #log_info "Aplicando permisos a: $patron (recursivo)"
                 log_debug "Aplicando permisos recursivos en: $directorio_patron para $archivo_patron"
                 # Usar find para buscar archivos que coincidan con el patrón
                 find "$directorio_patron" -name "$archivo_patron" -type f -exec chmod +x {} \;
@@ -1878,12 +1873,12 @@ ajustar_permisos_ejecutables() {
 
             if [ -f "$ruta_completa" ]; then
                 # Es un archivo específico
-                log_info "Aplicando permisos a: $patron"
+                #log_info "Aplicando permisos a: $patron"
                 log_debug "Aplicando chmod +x a: $ruta_completa"
                 chmod +x "$ruta_completa"
             elif [ -d "$ruta_completa" ]; then
                 # Es un directorio específico - aplicar recursivamente
-                log_info "Aplicando permisos recursivos a: $patron"
+                #log_info "Aplicando permisos recursivos a: $patron"
                 log_debug "Aplicando permisos recursivos en directorio: $ruta_completa"
                 find "$ruta_completa" -type f \( -name "*.sh" -o -name "*.bash" -o -name "*.py" -o -name "*.jl" \) -exec chmod +x {} \;
             fi
