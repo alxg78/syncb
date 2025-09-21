@@ -48,6 +48,8 @@ readonly CLOUD_MOUNT_CHECK_FILE="mount.check"
 readonly CLOUD_MOUNT_CHECK="${REMOTO_CRYPTO_DIR}/${CLOUD_MOUNT_CHECK_FILE}"
 readonly REMOTE_KEEPASS_DIR="${PCLOUD_MOUNT_POINT}/Applications/Keepass2Android"
 readonly LOCAL_KEEPASS_DIR="${LOCAL_CRYPTO_DIR}/ficheros_sensibles/Keepass2Android"
+readonly LOCAL_CRYPTO_HOSTNAME_RTVA_DIR="$LOCAL_CRYPTO_DIR/ficheros_sensibles"
+readonly REMOTO_CRYPTO_HOSTNAME_RTVA_DIR="$REMOTO_CRYPTO_DIR/ficheros_sensibles"
 
 # Archivos de configuración (buscar en el directorio del script primero, luego en el directorio actual)
 readonly LOG_FILE="$HOME/syncb.log"
@@ -1574,18 +1576,29 @@ sincronizar_elemento() {
 # =========================
 # Funciones para sincronización Crypto
 # =========================
-
 # Función para sincronizar directorio Crypto
 sincronizar_crypto() {
     # Preparar rutas según el modo (subir/bajar)
-    if [ "$MODO" = "subir" ]; then
-        origen="$LOCAL_CRYPTO_DIR"
-        destino="$REMOTO_CRYPTO_DIR"
-        direccion="LOCAL → PCLOUD (Crypto Subir)"
+    if [ "$HOSTNAME" = "${HOSTNAME_RTVA}" ]; then
+        if [ "$MODO" = "subir" ]; then
+            origen="$LOCAL_CRYPTO_HOSTNAME_RTVA_DIR"
+            destino="$REMOTO_CRYPTO_HOSTNAME_RTVA_DIR"
+            direccion="LOCAL → PCLOUD (Crypto Subir)"
+        else
+            origen="$REMOTO_CRYPTO_HOSTNAME_RTVA_DIR"
+            destino="$LOCAL_CRYPTO_HOSTNAME_RTVA_DIR"
+            direccion="PCLOUD → LOCAL (Crypto Bajar)"
+        fi
     else
-        origen="$REMOTO_CRYPTO_DIR"
-        destino="$LOCAL_CRYPTO_DIR"
-        direccion="PCLOUD → LOCAL (Crypto Bajar)"
+        if [ "$MODO" = "subir" ]; then
+            origen="$LOCAL_CRYPTO_DIR"
+            destino="$REMOTO_CRYPTO_DIR"
+            direccion="LOCAL → PCLOUD (Crypto Subir)"
+        else
+            origen="$REMOTO_CRYPTO_DIR"
+            destino="$LOCAL_CRYPTO_DIR"
+            direccion="PCLOUD → LOCAL (Crypto Bajar)"
+        fi
     fi
 
     # Verificar si el origen existe
