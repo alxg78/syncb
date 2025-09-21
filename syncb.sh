@@ -46,8 +46,8 @@ readonly LOCAL_CRYPTO_DIR="${LOCAL_DIR}/Crypto"
 readonly REMOTO_CRYPTO_DIR="${PCLOUD_MOUNT_POINT}/Crypto Folder"
 readonly CLOUD_MOUNT_CHECK_FILE="mount.check"
 readonly CLOUD_MOUNT_CHECK="${REMOTO_CRYPTO_DIR}/${CLOUD_MOUNT_CHECK_FILE}"
-readonly REMOTE_KEEPASS_DIR="${PCLOUD_MOUNT_POINT}/Applications/Keepass2Android"
 readonly LOCAL_KEEPASS_DIR="${LOCAL_CRYPTO_DIR}/ficheros_sensibles/Keepass2Android"
+readonly REMOTE_KEEPASS_DIR="${PCLOUD_MOUNT_POINT}/Applications/Keepass2Android"
 readonly LOCAL_CRYPTO_HOSTNAME_RTVA_DIR="$LOCAL_CRYPTO_DIR/ficheros_sensibles"
 readonly REMOTO_CRYPTO_HOSTNAME_RTVA_DIR="$REMOTO_CRYPTO_DIR/ficheros_sensibles"
 
@@ -82,6 +82,7 @@ EXCLUSIONES=""
 
 declare -a ITEMS_ESPECIFICOS=()
 declare -a EXCLUSIONES_CLI=()
+declare -a RSYNC_OPTS=()
 
 # tiempo
 SECONDS=0
@@ -355,7 +356,7 @@ mostrar_ayuda() {
     echo "  syncb.sh --subir --verbose       # Sincronizar con output verboso"
     echo "  syncb.sh --bajar --item Documentos/ --timeout 10  # Timeout corto de 10 minutos para una operación rápida"
     echo "  syncb.sh --force-unlock   # Forzar desbloqueo si hay un lock obsoleto"
-    echo "  syncb.sh --crypto         # Excluir directorio Crypto de la sincronización"
+    echo "  syncb.sh --crypto         # Incluir directorio Crypto de la sincronización"
     echo ""
     echo "Eliminar enlaces simbolicos rotos"
     echo " find ~/Documentos -xtype l                      Encuentra enlaces rotos"
@@ -812,7 +813,6 @@ verificar_archivos_configuracion() {
 }
 
 # Construye opciones de rsync (en array para evitar problemas de espacios)
-declare -a RSYNC_OPTS
 construir_opciones_rsync() {
     log_debug "Construyendo opciones de rsync..."
 
@@ -864,6 +864,7 @@ mostrar_estadísticas() {
     echo "=========================================="
     echo "Elementos procesados: $ELEMENTOS_PROCESADOS"
     echo "Archivos transferidos: $ARCHIVOS_TRANSFERIDOS"
+    [ $SYNC_CRYPTO -eq 1 ] && echo "Archivos Crypto transferidos: $ARCHIVOS_CRYPTO_TRANSFERIDOS"
     [ $DELETE -eq 1 ] && echo "Archivos borrados en destino: $ARCHIVOS_BORRADOS"
     [ ${#EXCLUSIONES_CLI[@]} -gt 0 ] && echo "Exclusiones CLI aplicadas: ${#EXCLUSIONES_CLI[@]} patrones"
     echo "Enlaces manejados: $((ENLACES_CREADOS + ENLACES_EXISTENTES))"
@@ -1077,6 +1078,7 @@ validate_rsync_opts() {
     return 0
 }
 
+# Froamate comando rsync e imprime como un log_debug
 print_rsync_command() {
     local origen="$1"
     local destino="$2"
@@ -1746,7 +1748,7 @@ procesar_elementos() {
         while IFS= read -r linea || [ -n "$linea" ]; do
             [[ -n "$linea" && ! "$linea" =~ ^[[:space:]]*# ]] || continue # Omite comentarios
             [[ -z "${linea// /}" ]] && continue                           # Omite líneas vacías o solo espacios
-            #log_debug "Procesando elemento de lista: $linea"
+            log_debug "Procesando elemento de lista: $linea"
             sincronizar_elemento "$linea" || exit_code=1
             ELEMENTOS_PROCESADOS=$((ELEMENTOS_PROCESADOS + 1))
             echo "------------------------------------------"
@@ -1848,7 +1850,7 @@ ajustar_permisos_ejecutables() {
     local exit_code=0
 
     log_debug "Ajustando permisos de ejecución..."
-    #log_info "Ajustando permisos de ejecución..."
+    log_info "Ajustando permisos de ejecución..."
 
     # Procesar cada argumento
     for patron in "$@"; do
