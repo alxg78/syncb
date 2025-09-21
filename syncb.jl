@@ -1652,7 +1652,7 @@ function main()
     mostrar_banner()
 
     # Establecer locking
-    if !establish_lock()
+    if !establecer_lock()
         exit(1)
     end
 
