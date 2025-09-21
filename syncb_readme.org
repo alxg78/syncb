@@ -211,6 +211,15 @@ Verificar que los elementos en la lista de sincronización no contengan ~..~
 syncb.sh --bajar --timeout 60
 #+END_SRC
 
+** Error: Enlaces simbólicos rotos 
+
+Resumen de comandos útiles
+
+| Comando                                     | Descripción                               |
+| find ~/Documentos -xtype l                  | Encuentra enlaces rotos                   |
+| find ~/Documentos -xtype l -delete          | Elimina enlaces rotos                     |
+| find ~/Documentos -type l -exec ls -l {} \; | Lista todos los enlaces (rotos y válidos) |
+
 * Tests Unitarios
 Ejecutar tests de validación:
 #+BEGIN_SRC shell

@@ -354,6 +354,11 @@ mostrar_ayuda() {
     echo "  syncb.sh --bajar --item Documentos/ --timeout 10  # Timeout corto de 10 minutos para una operación rápida"
     echo "  syncb.sh --force-unlock   # Forzar desbloqueo si hay un lock obsoleto"
     echo "  syncb.sh --no-crypto      # Excluir directorio Crypto de la sincronización"
+    echo ""
+    echo "Eliminar enlaces simbolicos rotos"
+    echo " find ~/Documentos -xtype l                      Encuentra enlaces rotos"
+    echo " find ~/Documentos -xtype l -delete              Elimina enlaces rotos"
+    echo " find ~/Documentos -type l -exec ls -l {} \;     Lista todos los enlaces (rotos y válidos)"
 }
 
 # Función para procesar argumentos de línea de comandos
@@ -560,6 +565,7 @@ verificar_pcloud_montado() {
     if [ ! -f "$CLOUD_MOUNT_CHECK" ] && [ "$SYNC_CRYPTO" = 1 ]; then
         log_error "El volumen Crypto no está montado o el archivo de verificación no existe"
         log_error "Por favor, desbloquea/monta la unidad en: \"$REMOTO_CRYPTO_DIR\""
+        log_error "También puedes ejecutar 'syncb.sh' con la opción '--no-crypto', no sincroniza la carpeta Crypto"
         exit 1
     fi
 
@@ -1092,6 +1098,7 @@ print_rsync_command() {
 # =========================
 # ENLACES SIMBÓLICOS
 # =========================
+
 # Función para registrar un enlace individual
 registrar_enlace() {
     local enlace="$1"
@@ -1261,7 +1268,7 @@ procesar_linea_enlace() {
 
         if [ "$destino_actual" = "$destino_para_ln" ]; then
             #log_debug "Enlace ya existe y es correcto: $ruta_enlace"
-            #log_debug "Enlace ya existe y es correcto: $ruta_enlace -> $destino_para_ln"
+            log_debug "Enlace ya existe y es correcto: $ruta_enlace -> $destino_para_ln"
             ENLACES_EXISTENTES=$((ENLACES_EXISTENTES + 1))
             return 0
         fi
