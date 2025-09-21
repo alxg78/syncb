@@ -1,0 +1,45 @@
+[general]
+pcloud_mount_point = "~/pCloudDrive"
+local_dir = "~"
+pcloud_backup_comun = "Backups/Backup_Comun"
+pcloud_backup_readonly = "pCloud Backup/feynman.sobremesa.dnf"
+hostname_rtva = "feynman.rtva.dnf"
+log_file = "~/syncb.log"
+lock_file = "/tmp/syncb.lock"
+lock_timeout = 3600
+
+[crypto]
+local_crypto_dir = "Crypto"
+remoto_crypto_dir = "Crypto Folder"
+cloud_mount_check_file = "mount.check"
+local_keepass_dir = "Crypto/ficheros_sensibles/Keepass2Android"
+remote_keepass_dir = "Applications/Keepass2Android"
+local_crypto_hostname_rtva_dir = "Crypto/ficheros_sensibles"
+remoto_crypto_hostname_rtva_dir = "Crypto Folder/ficheros_sensibles"
+
+[directorios]
+por_defecto = [
+    "Documentos",
+    "Imágenes",
+    ".config",
+    ".local/bin",
+    ".ssh"
+]
+
+feynman.rtva.dnf = [
+    "Documentos",
+    "Imágenes",
+    ".config",
+    ".local/bin",
+    ".ssh",
+    "Proyectos"
+]
+
+[exclusiones]
+patrones = [
+    "*.tmp",
+    "temp/",
+    "*.log",
+    "cache/",
+    ".DS_Store"
+]
