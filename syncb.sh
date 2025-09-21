@@ -80,19 +80,19 @@ SYNC_CRYPTO=0 # Por defecto no sincronizar Crypto
 LISTA_SINCRONIZACION=""
 EXCLUSIONES=""
 
+# tiempo
+SECONDS=0
+
 declare -a ITEMS_ESPECIFICOS=()
 declare -a EXCLUSIONES_CLI=()
 declare -a RSYNC_OPTS=()
 
-# tiempo
-SECONDS=0
+# Temp files to cleanup
+declare -a TEMP_FILES=()
 
 # Configuración de locking
 readonly LOCK_FILE="${TMPDIR:-/tmp}/syncb.lock"
 readonly LOCK_TIMEOUT=3600 # Tiempo máximo de bloqueo en segundos (1 hora)
-
-# Temp files to cleanup
-TEMP_FILES=()
 
 # Variables para estadísticas
 declare -i ELEMENTOS_PROCESADOS=0
