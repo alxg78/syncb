@@ -73,7 +73,7 @@ VERBOSE=0
 DEBUG=0
 USE_CHECKSUM=0
 BW_LIMIT=""
-SYNC_CRYPTO=1 # Por defecto sincronizar Crypto
+SYNC_CRYPTO=0 # Por defecto no sincronizar Crypto
 
 LISTA_SINCRONIZACION=""
 EXCLUSIONES=""
@@ -322,7 +322,7 @@ mostrar_ayuda() {
     echo "  --bwlimit KB/s     Limita la velocidad de transferencia (ej: 1000 para 1MB/s)"
     echo "  --timeout MINUTOS  Límite de tiempo por operación (default: 30)"
     echo "  --force-unlock     Forzando eliminación de lock"
-    echo "  --no-crypto        Excluye la sincronización del directorio Crypto"
+    echo "  --crypto           Incluye la sincronización del directorio Crypto"
     echo "  --verbose          Habilita modo verboso para debugging"
     echo "  --help             Muestra esta ayuda"
     echo ""
@@ -353,7 +353,7 @@ mostrar_ayuda() {
     echo "  syncb.sh --subir --verbose       # Sincronizar con output verboso"
     echo "  syncb.sh --bajar --item Documentos/ --timeout 10  # Timeout corto de 10 minutos para una operación rápida"
     echo "  syncb.sh --force-unlock   # Forzar desbloqueo si hay un lock obsoleto"
-    echo "  syncb.sh --no-crypto      # Excluir directorio Crypto de la sincronización"
+    echo "  syncb.sh --crypto         # Excluir directorio Crypto de la sincronización"
     echo ""
     echo "Eliminar enlaces simbolicos rotos"
     echo " find ~/Documentos -xtype l                      Encuentra enlaces rotos"
@@ -467,8 +467,8 @@ procesar_argumentos() {
             rm -f "$LOCK_FILE"
             exit 0
             ;;
-        --no-crypto)
-            SYNC_CRYPTO=0
+        --crypto)
+            SYNC_CRYPTO=1
             shift
             ;;
         --verbose)
@@ -565,12 +565,11 @@ verificar_pcloud_montado() {
     if [ ! -f "$CLOUD_MOUNT_CHECK" ] && [ "$SYNC_CRYPTO" = 1 ]; then
         log_error "El volumen Crypto no está montado o el archivo de verificación no existe"
         log_error "Por favor, desbloquea/monta la unidad en: \"$REMOTO_CRYPTO_DIR\""
-        log_error "También puedes ejecutar 'syncb.sh' con la opción '--no-crypto', no sincroniza la carpeta Crypto"
         exit 1
     fi
 
     log_debug "Verificación de pCloud completada con éxito."
-    log_info "Verificación de pCloud: OK - El directorio está montado y accesible"
+    #log_info "Verificación de pCloud: OK - El directorio está montado y accesible"
 }
 
 # Función para mostrar el banner informativo
@@ -1807,11 +1806,9 @@ sincronizar() {
         if ! sincronizar_crypto; then
             exit_code=1
             log_warn "Sincronización Crypto completada con errores"
-            #else
-            #log_success "Sincronización Crypto completada correctamente"
         fi
     else
-        log_info "Sincronización de directorio Crypto excluida (--no-crypto)"
+        log_info "Sincronización de directorio Crypto excluida"
     fi
 
     # Manejar enlaces simbólicos
