@@ -1,45 +1,157 @@
-[general]
-pcloud_mount_point = "~/pCloudDrive"
+# Configuración de rutas y directorios
+[paths]
 local_dir = "~"
+pcloud_mount_point = "~/pCloudDrive"
 pcloud_backup_comun = "Backups/Backup_Comun"
 pcloud_backup_readonly = "pCloud Backup/feynman.sobremesa.dnf"
-hostname_rtva = "feynman.rtva.dnf"
+
+# Ubicaciones donde buscar el archivo de configuración
+config_search_paths = [
+    "syncb_config.toml",
+    "~/.config/syncb/syncb_config.toml",
+    "~/.syncb_config.toml",
+    "/etc/syncb/syncb_config.toml"
+]
+
+# Configuración de archivos
+[files]
+symlinks_file = ".syncb_symlinks.meta"
 log_file = "~/syncb.log"
-lock_file = "/tmp/syncb.lock"
+
+# Configuración general
+[general]
 lock_timeout = 3600
+hostname_rtva = "feynman.rtva.dnf"
+default_timeout_minutes = 30
 
-[crypto]
-local_crypto_dir = "Crypto"
-remoto_crypto_dir = "Crypto Folder"
-cloud_mount_check_file = "mount.check"
-local_keepass_dir = "Crypto/ficheros_sensibles/Keepass2Android"
-remote_keepass_dir = "Applications/Keepass2Android"
-local_crypto_hostname_rtva_dir = "Crypto/ficheros_sensibles"
-remoto_crypto_hostname_rtva_dir = "Crypto Folder/ficheros_sensibles"
+# Lista de directorios a sincronizar
+directorios_sincronizacion = [    
+    # Elementos urgentes
+    "Documentos/personal/orgfiles",
+    "Documentos/proyectos/sync/others_lang",
 
-[directorios]
-por_defecto = [
-    "Documentos",
-    "Imágenes",
-    ".config",
+    # Elementos en .local
     ".local/bin",
-    ".ssh"
+
+    # Elementos en .config
+    ".config/dotfiles",
+    ".config/doom",
+    ".config/backup-configs",
+    ".config/emacs.mcfg",
+    ".config/calibre",
+    ".config/keepassxc",
+    ".config/nvim",
+    ".config/systemd",
+    ".config/task",
+    ".config/vlc",
+
+    # Elementos en .local/share
+    ".local/share/applications",
+    ".local/share/ispell",
+    #".local/share/libvirt",
+    ".local/share/nautilus",
+    ".local/share/remmina",
+    ".local/share/todo.txt",
+
+    # Archivos y directorios en raíz
+    "Plantillas",
+    "Vínculos",
+    "Documentos",  
+    "Imágenes",
+    "Música",
+    "Público",
+    "Vídeos"
 ]
 
-feynman.rtva.dnf = [
-    "Documentos",
-    "Imágenes",
-    ".config",
-    ".local/bin",
-    ".ssh",
-    "Proyectos"
-]
-
-[exclusiones]
-patrones = [
+# Lista de exclusiones (patrones)
+exclusiones = [
     "*.tmp",
-    "temp/",
+    "*.temp",
     "*.log",
+    "*.bak",
+    "*.backup",
+    ".Trash-*",
+    ".DS_Store",
+    "Thumbs.db",
+    "*.swp",
+    "*.qcow2",
+    "tmp_pruebas/",
+    "Descargas/",
     "cache/",
-    ".DS_Store"
+    ".cache/",
+    "*Cache*/"  
 ]
+
+# Configuración específica por host (opcional)
+# el nombre del host tiene que ir entre comilla para que funcione
+[host_specific."feynman.rtva.dnf"]
+directorios_sincronizacion = [   
+    # Elementos urgentes
+    "Documentos/personal/orgfiles",
+    "Documentos/proyectos/sync/others_lang",
+
+    # Elementos en .local
+    ".local/bin",
+
+    # Elementos en .config
+    ".config/dotfiles",
+    ".config/doom",
+    ".config/backup-configs",
+    ".config/emacs.mcfg",
+    ".config/calibre",
+    ".config/keepassxc",
+    ".config/nvim",
+    ".config/systemd",
+    ".config/task",
+    ".config/vlc",
+
+    # Elementos en .local/share
+    ".local/share/applications",
+    ".local/share/ispell",
+    ".local/share/nautilus",
+    ".local/share/remmina",
+    ".local/share/todo.txt",
+
+    # Archivos y directorios en raíz
+    "Plantillas",
+    "Vínculos" 
+]
+
+[permisos_ejecutables]
+archivos = [
+    ".config/dotfiles/*.sh",
+    ".local/bin/*.sh",
+    ".local/bin/*.py",
+    ".local/bin/*.jl",
+    ".local/bin/pcloud"
+]
+
+[logging]
+max_size_mb = 10
+backup_count = 5
+
+[notifications]
+enabled = true
+
+# Colores para logging (códigos ANSI)
+# Nota: En TOML, las cadenas literales con comillas simples no procesan secuencias de escape
+[colors]
+red = '\033[0;31m'
+green = '\033[0;32m'
+yellow = '\033[1;33m'
+blue = '\033[0;34m'
+magenta = '\033[0;35m'
+cyan = '\033[0;36m'
+white = '\033[1;37m'
+no_color = '\033[0m'
+
+# Iconos Unicode
+[icons]
+check_mark = "✓"
+cross_mark = "✗"
+info_icon = "ℹ"
+warning_icon = "⚠"
+clock_icon = "⏱"
+sync_icon = "🔄"
+error_icon = "❌"
+success_icon = "✅"
