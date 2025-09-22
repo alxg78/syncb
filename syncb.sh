@@ -1648,7 +1648,7 @@ sincronizar_crypto() {
 
     # Sincroniza KeePass2Android (pcloud -> ~/Cripto)
     if [ $DEBUG -eq 1 ] || [ $VERBOSE -eq 1 ]; then
-        print_rsync_command "$REMOTE_KEEPASS_DIR" "$LOCAL_KEEPASS_DIR" CRYPTO_RSYNC_OPTS
+        print_rsync_command "$REMOTE_KEEPASS_DIR/" "$LOCAL_KEEPASS_DIR/" CRYPTO_RSYNC_OPTS
     fi
     rsync "${CRYPTO_RSYNC_OPTS[@]}" "$REMOTE_KEEPASS_DIR/" "$LOCAL_KEEPASS_DIR/"
 
