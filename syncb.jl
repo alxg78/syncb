@@ -328,8 +328,8 @@ function load_config()::SyncConfig
     
     # Cargar configuración específica por host
     host_specific = Dict{String, Vector{String}}()
-    if haskey(toml_data, "host_specific")
-        for (host, dirs) in toml_data["host_specific"]
+    if haskey(toml_data, "host_specific.feynman.rtva.dnf")
+        for (host, dirs) in toml_data["host_specific.feynman.rtva.dnf"]
             host_specific[host] = dirs
         end
     end
@@ -1105,12 +1105,12 @@ end
 
 function main()
     try
-        # Cargar configuración
-        global config = load_config()
- 
         # Configurar logging
         setup_logging()
 
+        # Cargar configuración
+        global config = load_config()
+ 
         # Procesar argumentos
         global args = parse_args()
         
