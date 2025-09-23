@@ -7,10 +7,10 @@ pcloud_backup_readonly = "pCloud Backup/feynman.sobremesa.dnf"
 
 # Ubicaciones donde buscar el archivo de configuración
 config_search_paths = [
-    "syncb_config.toml",
-    "~/.config/syncb/syncb_config.toml",
-    "~/.syncb_config.toml",
-    "/etc/syncb/syncb_config.toml"
+    "syncb.toml",
+    "~/.config/syncb/syncb.toml",
+    "~/.syncb.toml",
+    "/etc/syncb/syncb.toml"
 ]
 
 # Configuración de archivos
