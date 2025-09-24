@@ -1,20 +1,27 @@
+# syncb_config.toml - Configuración actualizada con soporte Crypto
+
 # Configuración de rutas y directorios
 [paths]
 local_dir = "~"
 pcloud_mount_point = "~/pCloudDrive"
-pcloud_backup_comun = "Backups/Backup_Comun"
-pcloud_backup_readonly = "pCloud Backup/feynman.sobremesa.dnf"
+pcloud_backup_comun = "~/pCloudDrive/Backups/Backup_Comun"
+pcloud_backup_readonly = "~/pCloudDrive/pCloud Backup/feynman.sobremesa.dnf"
 
-# Ubicaciones donde buscar el archivo de configuración
-config_search_paths = [
-    "syncb_config.toml",
-    "~/.config/syncb/syncb_config.toml",
-    "~/.syncb_config.toml",
-    "/etc/syncb/syncb_config.toml"
-]
+# NUEVA SECCIÓN: Configuración Crypto
+[crypto]
+local_crypto_dir = "~/Crypto"
+remote_crypto_dir = "~/pCloudDrive/Crypto Folder"
+cloud_mount_check_file = "mount.check"
+local_keepass_dir = "~/Crypto/ficheros_sensibles/Keepass2Android"
+remote_keepass_dir = "~/pCloudDrive/Applications/Keepass2Android"
+local_crypto_hostname_rtva_dir = "~/Crypto/ficheros_sensibles"
+remote_crypto_hostname_rtva_dir = "~/pCloudDrive/Crypto Folder/ficheros_sensibles"
 
 # Configuración de archivos
 [files]
+lista_por_defecto = "syncb_directorios.ini"
+lista_especifica_por_defecto = "syncb_directorios_feynman.rtva.dnf.ini"
+exclusiones_file = "syncb_exclusiones.ini"
 symlinks_file = ".syncb_symlinks.meta"
 log_file = "~/syncb.log"
 

@@ -115,6 +115,23 @@ class Config:
         self.PCLOUD_BACKUP_READONLY = self.PCLOUD_MOUNT_POINT / Path(os.path.expanduser(os.path.expandvars(
             paths.get('pcloud_backup_readonly', str(self.PCLOUD_MOUNT_POINT / "pCloud Backup" / "feynman.sobremesa.dnf")))))
                 
+        # Variables de configuración crypto (NUEVO)
+        crypto = self.config_data.get('crypto', {})
+        self.LOCAL_CRYPTO_DIR = Path(os.path.expanduser(os.path.expandvars(
+            crypto.get('local_crypto_dir', "~/Crypto"))))
+        self.REMOTO_CRYPTO_DIR = Path(os.path.expanduser(os.path.expandvars(
+            crypto.get('remote_crypto_dir', "~/pCloudDrive/Crypto Folder"))))
+        self.CLOUD_MOUNT_CHECK_FILE = crypto.get('cloud_mount_check_file', "mount.check")
+        self.CLOUD_MOUNT_CHECK = self.REMOTO_CRYPTO_DIR / self.CLOUD_MOUNT_CHECK_FILE
+        self.LOCAL_KEEPASS_DIR = Path(os.path.expanduser(os.path.expandvars(
+            crypto.get('local_keepass_dir', str(self.LOCAL_CRYPTO_DIR / "ficheros_sensibles" / "Keepass2Android")))))
+        self.REMOTE_KEEPASS_DIR = Path(os.path.expanduser(os.path.expandvars(
+            crypto.get('remote_keepass_dir', "~/pCloudDrive/Applications/Keepass2Android"))))
+        self.LOCAL_CRYPTO_HOSTNAME_RTVA_DIR = Path(os.path.expanduser(os.path.expandvars(
+            crypto.get('local_crypto_hostname_rtva_dir', str(self.LOCAL_CRYPTO_DIR / "ficheros_sensibles")))))
+        self.REMOTO_CRYPTO_HOSTNAME_RTVA_DIR = Path(os.path.expanduser(os.path.expandvars(
+            crypto.get('remote_crypto_hostname_rtva_dir', str(self.REMOTO_CRYPTO_DIR / "ficheros_sensibles")))))
+                
         # Ubicaciones de búsqueda de configuración
         self.CONFIG_SEARCH_PATHS = [
             os.path.expanduser(os.path.expandvars(path))
@@ -204,6 +221,7 @@ class SyncBidireccional:
         self.timeout_minutes = self.config.DEFAULT_TIMEOUT_MINUTES
         self.items_especificos = []
         self.exclusiones_cli = []
+        self.sync_crypto = False  # NUEVO: Control de sincronización Crypto
         
         # Variables para estadísticas
         self.elementos_procesados = 0
@@ -214,6 +232,7 @@ class SyncBidireccional:
         self.enlaces_errores = 0
         self.enlaces_detectados = 0
         self.archivos_borrados = 0
+        self.archivos_crypto_transferidos = 0  # NUEVO: Contador para archivos Crypto
         
         # Tiempo de inicio
         self.start_time = time.time()
@@ -466,7 +485,8 @@ class SyncBidireccional:
                    "  syncb.py --bajar --dry-run\n"
                    "  syncb.py --subir --delete --yes\n"
                    "  syncb.py --subir --item documentos/\n"
-                   "  syncb.py --bajar --item configuracion.ini --item .local/bin --dry-run",
+                   "  syncb.py --bajar --item configuracion.ini --item .local/bin --dry-run\n"
+                   "  syncb.py --subir --crypto  # NUEVO: incluir directorio Crypto",
             formatter_class=argparse.RawTextHelpFormatter
         )
         
@@ -487,6 +507,7 @@ class SyncBidireccional:
         parser.add_argument("--bwlimit", type=int, help="Limita la velocidad de transferencia (KB/s)")
         parser.add_argument("--timeout", type=int, default=30, help="Límite de tiempo por operación (minutos)")
         parser.add_argument("--force-unlock", action="store_true", help="Fuerza eliminación de lock")
+        parser.add_argument("--crypto", action="store_true", help="Incluye la sincronización del directorio Crypto")  # NUEVO
         parser.add_argument("--verbose", action="store_true", help="Habilita modo verboso")
         parser.add_argument("--test", action="store_true", help="Ejecuta tests unitarios")
         parser.add_argument("--config", type=str, help="Ruta al archivo de configuración TOML")
@@ -507,6 +528,7 @@ class SyncBidireccional:
         self.bw_limit = args.bwlimit
         self.timeout_minutes = args.timeout
         self.verbose = args.verbose
+        self.sync_crypto = args.crypto  # NUEVO
         
         if args.item:
             self.items_especificos = args.item
@@ -609,7 +631,15 @@ class SyncBidireccional:
             self.log_error(f"Sin permisos para acceder al directorio: {self.config.PCLOUD_MOUNT_POINT}")
             return False
         
-        # 3. Verificación robusta usando diferentes métodos según el sistema operativo
+        # 3. Verificar montaje de la carpeta Crypto si está habilitado (NUEVO)
+        if self.sync_crypto:
+            self.log_debug(f"Verificando montaje de Crypto en: {self.config.REMOTO_CRYPTO_DIR}")
+            if not self.config.CLOUD_MOUNT_CHECK.exists():
+                self.log_error("El volumen Crypto no está montado o el archivo de verificación no existe")
+                self.log_error(f"Por favor, desbloquea/monta la unidad en: \"{self.config.REMOTO_CRYPTO_DIR}\"")
+                return False
+        
+        # 4. Verificación robusta usando diferentes métodos según el sistema operativo
         sistema = platform.system()
         montado = False
         
@@ -664,7 +694,7 @@ class SyncBidireccional:
             self.log_error(f"Error verificando montaje: {e}")
             # Continuar con otras verificaciones a pesar del error
         
-        # 4. Verificar si el directorio específico de pCloud existe
+        # 5. Verificar si el directorio específico de pCloud existe
         if not pcloud_dir.exists():
             self.log_error(f"El directorio de pCloud no existe: {pcloud_dir}")
             self.log_info("Asegúrate de que:")
@@ -673,7 +703,7 @@ class SyncBidireccional:
             self.log_info("3. El directorio exista en tu pCloud")
             return False
         
-        # 5. Verificar permisos de escritura (solo si no es dry-run y no es modo backup-dir)
+        # 6. Verificar permisos de escritura (solo si no es dry-run y no es modo backup-dir)
         if not self.dry_run and self.backup_dir_mode == "comun":
             try:
                 test_file = pcloud_dir / f".test_write_{os.getpid()}"
@@ -683,7 +713,7 @@ class SyncBidireccional:
                 self.log_error(f"No se puede escribir en: {pcloud_dir} - {e}")
                 return False
         
-        # 6. Verificación adicional: intentar listar contenido
+        # 7. Verificación adicional: intentar listar contenido
         try:
             # Intentar listar algunos elementos del directorio
             list(pcloud_dir.iterdir())
@@ -824,6 +854,12 @@ class SyncBidireccional:
             print(f"SOBRESCRITURA: {self.config.GREEN}ACTIVADA{self.config.NC}")
         else:
             print("MODO: SEGURO (--update activado)")
+        
+        # NUEVO: Información sobre Crypto
+        if self.sync_crypto:
+            print(f"CRYPTO: {self.config.GREEN}INCLUIDO{self.config.NC} (se sincronizará directorio Crypto)")
+        else:
+            print(f"CRYPTO: {self.config.YELLOW}EXCLUIDO{self.config.NC} (no se sincronizará directorio Crypto)")
         
         elementos = self.get_lista_sincronizacion()
         if self.items_especificos:
@@ -1057,6 +1093,136 @@ class SyncBidireccional:
         self.log_info(f"Archivos creados: {creados}")
         self.log_info(f"Archivos actualizados: {actualizados}")
     
+    # NUEVA FUNCIÓN: Sincronización de directorio Crypto
+    def sincronizar_crypto(self):
+        """Sincroniza el directorio Crypto"""
+        # Preparar rutas según el modo (subir/bajar) y hostname
+        if self.hostname == self.config.HOSTNAME_RTVA:
+            if self.modo == "subir":
+                origen = self.config.LOCAL_CRYPTO_HOSTNAME_RTVA_DIR
+                destino = self.config.REMOTO_CRYPTO_HOSTNAME_RTVA_DIR
+                direccion = "LOCAL → PCLOUD (Crypto Subir - RTVA)"
+            else:
+                origen = self.config.REMOTO_CRYPTO_HOSTNAME_RTVA_DIR
+                destino = self.config.LOCAL_CRYPTO_HOSTNAME_RTVA_DIR
+                direccion = "PCLOUD → LOCAL (Crypto Bajar - RTVA)"
+        else:
+            if self.modo == "subir":
+                origen = self.config.LOCAL_CRYPTO_DIR
+                destino = self.config.REMOTO_CRYPTO_DIR
+                direccion = "LOCAL → PCLOUD (Crypto Subir)"
+            else:
+                origen = self.config.REMOTO_CRYPTO_DIR
+                destino = self.config.LOCAL_CRYPTO_DIR
+                direccion = "PCLOUD → LOCAL (Crypto Bajar)"
+        
+        # Verificar si el origen existe
+        if not origen.exists():
+            self.log_warn(f"No existe {origen}, creando directorio...")
+            if not self.dry_run:
+                origen.mkdir(parents=True, exist_ok=True)
+        
+        # Normalizar si es directorio
+        if origen.is_dir():
+            origen = Path(str(origen) + "/")
+            destino = Path(str(destino) + "/")
+        
+        print("------------------------------------------")
+        self.log_info(f"{self.config.BLUE}Sincronizando Crypto: {origen} -> {destino} ({direccion}){self.config.NC}")
+        self.log_info("Iniciando sincronización de directorio Crypto...")
+        
+        # Construir opciones de rsync específicas para Crypto
+        crypto_opts = [
+            "--recursive",
+            "--verbose",
+            "--times",
+            "--progress",
+            "--whole-file",
+            "--itemize-changes"
+        ]
+        
+        if not self.overwrite:
+            crypto_opts.append("--update")
+        
+        if self.dry_run:
+            crypto_opts.append("--dry-run")
+        
+        if self.delete:
+            crypto_opts.append("--delete-delay")
+        
+        if self.use_checksum:
+            crypto_opts.append("--checksum")
+        
+        # Excluir el archivo de verificación de montaje
+        crypto_opts.append(f"--exclude={self.config.CLOUD_MOUNT_CHECK_FILE}")
+        
+        # Añadir exclusiones de línea de comandos
+        exclusiones = self.get_exclusiones()
+        for patron in exclusiones:
+            crypto_opts.append(f"--exclude={patron}")
+        
+        # Sincronizar Keepass2Android (pcloud -> ~/Cripto) - siempre en ambas direcciones
+        self.log_info("Sincronizando Keepass2Android...")
+        keepass_cmd = ["rsync"] + crypto_opts + [
+            str(self.config.REMOTE_KEEPASS_DIR) + "/",
+            str(self.config.LOCAL_KEEPASS_DIR) + "/"
+        ]
+        
+        try:
+            self.log_debug(f"Ejecutando Keepass sync: {' '.join(keepass_cmd)}")
+            result_keepass = subprocess.run(keepass_cmd, capture_output=True, text=True, 
+                                          timeout=self.timeout_minutes * 60)
+            if result_keepass.returncode != 0:
+                self.log_error("Error sincronizando Keepass2Android")
+        except Exception as e:
+            self.log_error(f"Error en sincronización Keepass2Android: {e}")
+        
+        # Sincronizar directorio Crypto principal
+        crypto_cmd = ["rsync"] + crypto_opts + [str(origen), str(destino)]
+        
+        try:
+            self.log_debug(f"Ejecutando Crypto sync: {' '.join(crypto_cmd)}")
+            
+            # Usar archivo temporal para capturar salida
+            with self.manejo_temporal_context() as temp_ctx:
+                temp_output = temp_ctx.temp_file(suffix='.crypto_output', mode='w+')
+                
+                if self.dry_run:
+                    result = subprocess.run(crypto_cmd, stdout=temp_output, stderr=subprocess.STDOUT, 
+                                          text=True, timeout=self.timeout_minutes * 60)
+                else:
+                    result = subprocess.run(crypto_cmd, stdout=temp_output, stderr=subprocess.STDOUT,
+                                          timeout=self.timeout_minutes * 60)
+                
+                # Analizar salida para contar archivos transferidos
+                temp_output.seek(0)
+                output_content = temp_output.read()
+                crypto_count = sum(1 for linea in output_content.split('\n') 
+                                 if linea.startswith(('>', '<')))
+                self.archivos_crypto_transferidos += crypto_count
+            
+            if result.returncode == 0:
+                self.log_success(f"Sincronización Crypto completada: {crypto_count} archivos transferidos")
+                print("------------------------------------------")
+                return True
+            elif result.returncode == 124:  # timeout
+                self.log_error("TIMEOUT: La sincronización Crypto excedió el límite")
+                self.errores_sincronizacion += 1
+                return False
+            else:
+                self.log_error(f"Error en sincronización Crypto (código: {result.returncode})")
+                self.errores_sincronizacion += 1
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.log_error("TIMEOUT: La sincronización Crypto excedió el límite")
+            self.errores_sincronizacion += 1
+            return False
+        except Exception as e:
+            self.log_error(f"Error ejecutando rsync para Crypto: {e}")
+            self.errores_sincronizacion += 1
+            return False
+    
     def procesar_elementos(self):
         """Procesa todos los elementos a sincronizar"""
         exit_code = 0
@@ -1150,7 +1316,7 @@ class SyncBidireccional:
             # Escribir en archivo
             archivo.write(f"{ruta_relativa}\t{destino}\n")
             self.enlaces_detectados += 1
-            self.log_debug(f"Registrado enlace: {ruta_relativa} -> {destino}")  # Cambiado a debug
+            self.log_debug(f"Registrado enlace: {ruta_relativa} -> {destino}")
         except Exception as e:
             self.log_error(f"Error registrando enlace {enlace}: {e}")
     
@@ -1230,7 +1396,7 @@ class SyncBidireccional:
             if ruta_completa.is_symlink():
                 destino_actual = os.readlink(str(ruta_completa))
                 if destino_actual == destino:
-                    self.log_debug(f"Enlace ya existe y es correcto: {ruta_enlace} -> {destino}")  # Cambiado a debug
+                    self.log_debug(f"Enlace ya existe y es correcto: {ruta_enlace} -> {destino}")
                     self.enlaces_existentes += 1
                     return True
                 # Eliminar enlace existente incorrecto
@@ -1239,11 +1405,11 @@ class SyncBidireccional:
             
             # Crear el enlace
             if self.dry_run:
-                self.log_debug(f"SIMULACIÓN: ln -sfn '{destino}' '{ruta_completa}'")  # Cambiado a debug
+                self.log_debug(f"SIMULACIÓN: ln -sfn '{destino}' '{ruta_completa}'")
                 self.enlaces_creados += 1
             else:
                 os.symlink(destino, str(ruta_completa))
-                self.log_debug(f"Creado enlace: {ruta_enlace} -> {destino}")  # Cambiado a debug
+                self.log_debug(f"Creado enlace: {ruta_enlace} -> {destino}")
                 self.enlaces_creados += 1
             
             return True
@@ -1264,6 +1430,10 @@ class SyncBidireccional:
         print("=" * 50)
         print(f"Elementos procesados: {self.elementos_procesados}")
         print(f"Archivos transferidos: {self.archivos_transferidos}")
+        
+        # NUEVO: Mostrar estadísticas de Crypto si se usó
+        if self.sync_crypto:
+            print(f"Archivos Crypto transferidos: {self.archivos_crypto_transferidos}")
         
         if self.delete:
             print(f"Archivos borrados en destino: {self.archivos_borrados}")
@@ -1504,6 +1674,15 @@ class SyncBidireccional:
             # Procesar elementos
             exit_code = self.procesar_elementos()
             
+            # NUEVO: Sincronizar directorio Crypto si está habilitado
+            if self.sync_crypto:
+                if not self.sincronizar_crypto():
+                    exit_code = 1
+                else:
+                    self.log_info("Sincronización Crypto completada correctamente")
+            else:
+                self.log_info("Sincronización de directorio Crypto excluida")
+            
             # cambiar permisos de ficheros ejecutables cuando se bajan
             if self.modo == "bajar":
                 if self.ajustar_permisos_ejecutables():
@@ -1522,6 +1701,10 @@ class SyncBidireccional:
                 mensaje = (f"Sincronización {'completada' if exit_code == 0 else 'fallada'}\n"
                           f"Elementos: {self.elementos_procesados}, "
                           f"Transferidos: {self.archivos_transferidos}")
+                
+                # NUEVO: Incluir estadísticas de Crypto en la notificación
+                if self.sync_crypto:
+                    mensaje += f", Crypto: {self.archivos_crypto_transferidos}"
                 
                 self.enviar_notificacion(
                     f"Sincronización {'Completada' if exit_code == 0 else 'Fallida'}",
@@ -1547,6 +1730,11 @@ class SyncBidireccional:
                 f.write(f"Sincronización finalizada: {datetime.datetime.now().isoformat()}\n")
                 f.write(f"Elementos procesados: {self.elementos_procesados}\n")
                 f.write(f"Archivos transferidos: {self.archivos_transferidos}\n")
+                
+                # NUEVO: Registrar estadísticas de Crypto
+                if self.sync_crypto:
+                    f.write(f"Archivos Crypto transferidos: {self.archivos_crypto_transferidos}\n")
+                
                 if self.delete:
                     f.write(f"Archivos borrados: {self.archivos_borrados}\n")
                 exclusiones = self.get_exclusiones()
