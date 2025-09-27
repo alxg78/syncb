@@ -1,5 +1,5 @@
 # Solo las definiciones de structs básicas, sin dependencias complejas
-struct SyncBidireccional
+mutable struct SyncBidireccional
     config::Config
     logger::Logger
     modo::String
@@ -38,3 +38,4 @@ function SyncBidireccional(config_file::Union{String, Nothing}=nothing)
         time(), gethostname(), tempdir() * "/syncb.lock"
     )
 end
+
