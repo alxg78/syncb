@@ -1,0 +1,266 @@
+#+TITLE: syncb.sh - Sincronización Bidireccional con pCloud
+#+AUTHOR: Automático
+#+DATE: Generado el $(date +%Y-%m-%d)
+
+* Descripción
+Script avanzado de sincronización bidireccional entre directorio local y pCloud Drive con capacidades de backup, manejo de enlaces simbólicos y sistema de logging.
+
+* Características Principales
+- Sincronización bidireccional (subir/bajar)
+- Manejo de enlaces simbólicos
+- Sistema de locking para ejecuciones simultáneas
+- Verificación de espacio en disco
+- Modo dry-run y verbose
+- Rotación automática de logs
+- Compatibilidad con macOS y Linux
+- Soporte para múltiples configuraciones por hostname
+- Notificaciones del sistema al finalizar (Linux/macOS)
+- Estadísticas detalladas de rendimiento
+- Verificación de conectividad con pCloud
+- Soporte para múltiples --item y --exclude
+- Límite de tiempo por operación (timeout)
+- Detección automática de FQDN del host
+- Validación de rutas para prevenir path traversal
+- Sistema de timeout por operación individual
+- Registro detallado de enlaces simbólicos
+
+* Requisitos
+- Bash 4.0+
+- rsync
+- pCloud Drive montado localmente
+- Herramientas básicas: grep, awk, find, stat
+- Opcional: ~curl~ para verificación de conectividad
+- Opcional: ~notify-send~ (Linux) o ~osascript~ (macOS) para notificaciones
+- Opcional: ~timeout~ y ~stdbuf~ para gestión de tiempos de espera
+- Opcional: ~realpath~ o ~readlink~ para normalización de rutas
+
+* Instalación
+1. Guardar el script en un directorio del PATH
+2. Hacer ejecutable:
+   #+BEGIN_SRC shell
+   chmod +x syncb.sh
+   #+END_SRC
+3. Configurar los archivos de configuración (ver sección Configuración)
+4. Configurar variables de entorno si es necesario (PCLOUD_MOUNT_POINT, LOCAL_DIR, LOG_FILE)
+
+* Configuración
+
+** Archivos de Configuración
+El script busca estos archivos en el directorio del script o directorio actual:
+
+- ~syncb_directorios.ini~ :: Lista principal de elementos a sincronizar
+- ~syncb_directorios_<hostname>.ini~ :: Configuración específica por host
+- ~syncb_exclusiones.ini~ :: Patrones de exclusión para rsync
+
+** Variables de Entorno
+El script usa estas variables configurables:
+
+- ~PCLOUD_MOUNT_POINT~ :: Punto de montaje de pCloud (por defecto: ~$HOME/pCloudDrive~)
+- ~LOCAL_DIR~ :: Directorio local a sincronizar (por defecto: ~$HOME~)
+- ~LOG_FILE~ :: Archivo de log (por defecto: ~$HOME/syncb.log~)
+- ~HOSTNAME_RTVA~ :: Nombre de host específico para configuración especial (por defecto: feynman.rtva.dnf)
+
+* Uso
+
+** Sintaxis Básica
+#+BEGIN_SRC shell
+syncb.sh [--subir|--bajar] [OPCIONES]
+#+END_SRC
+
+** Opciones Principales
+| Opción          | Descripción                                                                 |
+|-----------------|-----------------------------------------------------------------------------|
+| --subir         | Sincroniza local → pCloud                                                   |
+| --bajar         | Sincroniza pCloud → local                                                   |
+| --delete        | Elimina archivos obsoletos en destino                                       |
+| --dry-run       | Simula sin hacer cambios reales                                             |
+| --item ELEMENTO | Sincroniza solo el elemento especificado                                    |
+| --exclude PATRON| Excluye archivos que coincidan con el patrón (puede usarse múltiples veces) |
+| --yes           | Ejecuta sin confirmación                                                    |
+| --backup-dir    | Usa directorio de backup de solo lectura                                    |
+| --overwrite     | Sobrescribe archivos en destino                                             |
+| --checksum      | Usa checksum para comparación (más lento)                                   |
+| --bwlimit KB/s  | Limita velocidad de transferencia                                           |
+| --timeout MIN   | Límite de tiempo por operación (default: 30)                                |
+| --force-unlock  | Fuerza eliminación de lock obsoleto                                         |
+| --verbose       | Habilita modo verboso                                                       |
+| --test          | Ejecuta tests unitarios                                                     |
+| --help          | Muestra ayuda detallada                                                     |
+
+** Ejemplos Comunes
+
+*** Sincronización normal
+#+BEGIN_SRC shell
+# Subir cambios a pCloud
+syncb.sh --subir
+
+# Bajar cambios desde pCloud
+syncb.sh --bajar
+#+END_SRC
+
+*** Sincronización con eliminación
+#+BEGIN_SRC shell
+# Subir y eliminar archivos obsoletos
+syncb.sh --subir --delete --yes
+#+END_SRC
+
+*** Sincronización de elemento específico
+#+BEGIN_SRC shell
+# Sincronizar solo un directorio específico
+syncb.sh --subir --item Documentos/ --dry-run
+#+END_SRC
+
+*** Sincronización con límites
+#+BEGIN_SRC shell
+# Con límite de velocidad y tiempo
+syncb.sh --bajar --bwlimit 1000 --timeout 10
+#+END_SRC
+
+*** Sincronización con exclusión de patrones
+#+BEGIN_SRC shell
+# Excluir archivos temporales y directorio temp
+syncb.sh --subir --exclude '*.tmp' --exclude 'temp/'
+#+END_SRC
+
+*** Sincronización forzada
+#+BEGIN_SRC shell
+# Sobrescribir todos los archivos y usar checksum
+syncb.sh --subir --overwrite --checksum
+#+END_SRC
+
+*** Forzar desbloqueo
+#+BEGIN_SRC shell
+# Eliminar lock de ejecución previa
+syncb.sh --force-unlock
+#+END_SRC
+
+*** Ejecutar tests
+#+BEGIN_SRC shell
+# Ejecutar tests unitarios
+syncb.sh --test
+#+END_SRC
+
+* Manejo de Enlaces Simbólicos
+El script gestiona enlaces simbólicos mediante un archivo metadato (~.syncb_symlinks.meta~) que:
+1. Se crea durante la subida con información de enlaces
+2. Se usa durante la bajada para recrear enlaces
+
+Los enlaces que apuntan fuera del directorio home se normalizan para usar ~$USERNAME~.
+ 
+El proceso de manejo de enlaces incluye:
+1. Detección de enlaces durante la subida
+2. Normalización de rutas para portabilidad
+3. Registro en archivo de metadatos
+4. Recreación durante la bajada con validación de seguridad
+
+* Sistema de Notificaciones
+El script envía notificaciones del sistema al finalizar:
+- Linux: mediante ~notify-send~
+- macOS: mediante ~osascript~
+- Fallback: mensaje en terminal con emoji (🔔)
+- Diferentes niveles de urgencia (info, warning, critical)
+
+* Sistema de Locking
+El script implementa locking para prevenir ejecuciones simultáneas:
+- Lock file: ~/tmp/syncb.lock~
+- Timeout automático: 1 hora
+- Forzar desbloqueo: ~--force-unlock~
+- Información detallada del proceso dueño del lock
+- Eliminación automática de locks obsoletos
+
+* Logging y Monitoreo
+- Log principal: ~$HOME/syncb.log~
+- Rotación automática al alcanzar 10MB
+- Formatos de mensaje coloreados en terminal
+- Estadísticas detalladas al finalizar
+- Notificaciones del sistema al finalizar (éxito/error)
+- Mensajes con timestamp y niveles de severidad
+- Información de debugging en modo verboso
+
+* Troubleshooting
+
+** Error: Punto de montaje no encontrado
+Verificar que pCloud Drive esté instalado y montado en ~$HOME/pCloudDrive~
+
+** Error: Lock existente
+#+BEGIN_SRC shell
+# Forzar eliminación de lock
+syncb.sh --force-unlock
+#+END_SRC
+
+** Error: Espacio insuficiente
+El script verifica espacio pero puede necesitar más del estimado
+
+** Error: Sin conectividad
+El script verifica conectividad con pCloud. Si falla, se muestra advertencia.
+
+** Modo verboso para debugging
+#+BEGIN_SRC shell
+syncb.sh --subir --verbose --dry-run
+#+END_SRC
+
+** Error: Path traversal detectado
+El script valida todas las rutas para prevenir ataques de path traversal.
+Verificar que los elementos en la lista de sincronización no contengan ~..~
+ 
+** Error: Tiempo excedido en operación
+#+BEGIN_SRC shell
+# Aumentar timeout o investigar rendimiento
+syncb.sh --bajar --timeout 60
+#+END_SRC
+
+* Tests Unitarios
+Ejecutar tests de validación:
+#+BEGIN_SRC shell
+syncb.sh --test
+#+END_SRC
+ 
+Los tests verifican:
+- Normalización de rutas
+- Construcción de opciones de rsync
+- Detección de argumentos duplicados
+- Resolución de items relativos
+- Verificación de espacio en disco
+
+* Rendimiento y Optimización
+El script incluye varias optimizaciones:
+- Límite de bandwidth configurable (~--bwlimit~)
+- Timeout por operación para evitar bloqueos
+- Sincronización con ~--whole-file~ para mejor rendimiento en redes locales
+- Modo ~--checksum~ para verificación precisa (a costa de rendimiento)
+- Procesamiento por elementos individuales con estadísticas
+- Buffering de salida para mejorar rendimiento de logging
+
+* Limitaciones Conocidas
+- No soporta sincronización continúa (solo por ejecución)
+- El manejo de enlaces simbólicos complejos puede fallar
+- No comprime datos durante transferencia
+- Timeout por operación, no global
+- Dependencia de herramientas externas (rsync, find, etc.)
+- El manejo de archivos con espacios puede requerir atención especial
+
+* Seguridad
+- Verificación de rutas para prevenir path traversal
+- Validación de permisos de escritura
+- Sanitización de entradas (en desarrollo)
+- Verificación de que los elementos están dentro del directorio home
+- Normalización de rutas para evitar directory traversal
+- Validación de todos los argumentos y elementos de configuración
+
+* Mantenimiento
+El script incluye funcionalidades automáticas de mantenimiento:
+- Rotación de logs
+- Limpieza de archivos temporales
+- Verificación de dependencias
+- Tests unitarios integrados
+- Sistema de logging autocontenido
+
+* Soporte
+Para problemas o mejoras, contactar con el mantenedor del script.
+ 
+** Depuración avanzada
+Para debugging detallado, ejecutar con modo verboso:
+#+BEGIN_SRC shell
+syncb.sh --subir --verbose 2>&1 | tee debug.log
+#+END_SRC
+

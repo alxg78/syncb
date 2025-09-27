@@ -1,0 +1,19 @@
+# SyncB
+
+#+begin_src bash
+# Instalar dependencias
+julia --project=@. -e 'using Pkg; Pkg.instantiate()'
+
+# Ejecutar
+julia --project=@. -e 'using SyncB; SyncB.main()' --subir --dry-run
+
+# O usar el wrapper
+chmod +x bin/syncb
+./bin/syncb --subir --verbose
+#+end_src
+
+
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://alxg78.github.io/SyncB.jl/stable/)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://alxg78.github.io/SyncB.jl/dev/)
+[![Build Status](https://github.com/alxg78/SyncB.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/alxg78/SyncB.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Coverage](https://codecov.io/gh/alxg78/SyncB.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/alxg78/SyncB.jl)
