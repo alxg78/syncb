@@ -35,7 +35,7 @@ default_timeout_minutes = 30
 directorios_sincronizacion = [    
     # Elementos urgentes
     "Documentos/personal/orgfiles",
-    "Documentos/proyectos/sync/others_lang",
+    "Documentos/proyectos/syncb",
 
     # Elementos en .local
     ".local/bin",
@@ -95,7 +95,7 @@ exclusiones = [
 directorios_sincronizacion = [   
     # Elementos urgentes
     "Documentos/personal/orgfiles",
-    "Documentos/proyectos/sync/others_lang",
+    "Documentos/proyectos/syncb",
 
     # Elementos en .local
     ".local/bin",
