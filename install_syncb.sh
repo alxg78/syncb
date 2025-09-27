@@ -134,25 +134,23 @@ fi
 
 # Archivos para cada versión
 BASH_FILES=(
-    "syncb.sh"
-    "syncb_directorios.ini"
-    "syncb_directorios_feynman.rtva.dnf.ini"
-    "syncb_exclusiones.ini"
-    "syncb_readme.org"
+    "bash/syncb.sh"
+    "bash/syncb_directorios.ini"
+    "bash/syncb_directorios_feynman.rtva.dnf.ini"
+    "bash/syncb_exclusiones.ini"
+    "bash/Readme.org"
 )
 
 PYTHON_FILES=(
-    "syncb.py"
-    "syncb_config.toml"
-    "syncb_readme.org"
+    "python/syncb.py"
+    "python/syncb_config.toml"
+    "python/Readme.org"
 )
 
 JULIA_FILES=(
-    "syncb.jl"
-    "syncb_directorios.ini"
-    "syncb_directorios_feynman.rtva.dnf.ini"
-    "syncb_exclusiones.ini"
-    "syncb_readme.org"
+    "julia/SyncB/src/*.jl"
+    "julia/SyncB/config/syncb_config.toml"
+    "julia/SyncB/Readme.org"
 )
 
 # Contadores para estadísticas
