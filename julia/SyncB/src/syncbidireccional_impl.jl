@@ -28,4 +28,51 @@ function mostrar_banner(app::SyncBidireccional)
     # Implementación...
 end
 
-# ... todas las demás funciones
+function eliminar_lock(app::SyncBidireccional)
+    lock_file = app.lock_file
+    if isfile(lock_file)
+        try
+            rm(lock_file)
+            log_info(app.logger, "Archivo de lock eliminado: $lock_file")
+        catch e
+            log_error(app.logger, "Error eliminando archivo de lock $lock_file: $e")
+        end
+    else
+        log_debug(app.logger, "No existe archivo de lock para eliminar: $lock_file")
+    end
+end
+
+function establecer_lock(app::SyncBidireccional)
+    lock_file = app.lock_file
+    
+    if isfile(lock_file)
+        try
+            # Verificar si el lock es viejo
+            file_time = mtime(lock_file)
+            current_time = time()
+            if current_time - file_time > app.config.lock_timeout
+                log_warn(app.logger, "Eliminando lock obsoleto")
+                rm(lock_file)
+            else
+                log_error(app.logger, "Ya existe una ejecución en progreso (lock file: $lock_file)")
+                return false
+            end
+        catch e
+            log_warn(app.logger, "Eliminando lock corrupto: $e")
+            rm(lock_file)
+        end
+    end
+    
+    # Crear nuevo lock
+    try
+        touch(lock_file)
+        log_info(app.logger, "Lock establecido: $lock_file")
+        return true
+    catch e
+        log_error(app.logger, "Error creando lock file: $e")
+        return false
+    end
+end
+
+
+

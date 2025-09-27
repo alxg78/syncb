@@ -207,6 +207,7 @@ function find_config_file(config_file::Union{String, Nothing})
     
     default_paths = [
         "syncb_config.toml",
+        "config/syncb_config.toml",
         "~/.config/syncb/syncb_config.toml",
         "/etc/syncb/syncb_config.toml"
     ]
