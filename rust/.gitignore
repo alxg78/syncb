@@ -1,8 +1,0 @@
-/target
-.tags
-Cargo.lock
-sync.lock
-.DS_Store
-Thumbs.db
-**/*.rs.bk
-.env
