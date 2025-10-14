@@ -74,7 +74,6 @@ directorios_sincronizacion = [
 exclusiones = [
     "*.tmp",
     "*.temp",
-    "*.log",
     "*.bak",
     "*.backup",
     ".Trash-*",
@@ -82,7 +81,6 @@ exclusiones = [
     "Thumbs.db",
     "*.swp",
     "*.qcow2",
-    "tmp_pruebas/",
     "Descargas/",
     "cache/",
     ".cache/",
