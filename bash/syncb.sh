@@ -1636,6 +1636,9 @@ sincronizar_crypto() {
     [ $DELETE -eq 1 ] && CRYPTO_RSYNC_OPTS+=(--delete-delay)
     [ $USE_CHECKSUM -eq 1 ] && CRYPTO_RSYNC_OPTS+=(--checksum)
 
+    # Límite de ancho de banda (si está configurado)
+    [ -n "$BW_LIMIT" ] && RSYNC_OPTS+=(--bwlimit="$BW_LIMIT")
+
     # Excluir el archivo de verificación de montaje de la transferencia
     CRYPTO_RSYNC_OPTS+=(--exclude="$CLOUD_MOUNT_CHECK_FILE")
 
