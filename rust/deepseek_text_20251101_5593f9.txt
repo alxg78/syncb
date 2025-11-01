@@ -1,9 +1,0 @@
-~/
-├── pCloudDrive/                 # Punto de montaje de pCloud
-│   ├── Backups/
-│   │   └── Backup_Comun/       # Backup común
-│   ├── pCloud Backup/          # Backup de solo lectura  
-│   └── Crypto Folder/          # Directorio Crypto
-└── Crypto/                     # Directorio Crypto local
-    └── ficheros_sensibles/
-        └── Keepass2Android/

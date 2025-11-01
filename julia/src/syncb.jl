@@ -280,10 +280,12 @@ function parse_arguments()::Dict{String,Any}
             help = "Sincroniza solo el elemento especificado (puede usarse múltiples veces)"
             action = :append_arg
             nargs = 1
+            arg_type = String
         "--exclude"
             help = "Excluye archivos que coincidan con el patrón (puede usarse múltiples veces)"
             action = :append_arg
             nargs = 1
+            arg_type = String
         "--yes"
             help = "No pregunta confirmación, ejecuta directamente"
             action = :store_true
@@ -314,6 +316,9 @@ function parse_arguments()::Dict{String,Any}
         "--debug"
             help = "Habilita modo debug"
             action = :store_true
+        #"--help"
+        #    help = "Muestra esta ayuda"
+        #    action = :store_true
     end
     
     return parse_args(parser)
@@ -1041,7 +1046,12 @@ end
 function main()
     # Parsear argumentos
     args = parse_arguments()
-
+    
+    #if get(args, "help", false)
+    #    show_help()
+    #    return
+    #end
+    
     if get(args, "force-unlock", false)
         config = load_config()
         if isfile(config.lock_file)
@@ -1064,6 +1074,33 @@ function main()
     config = load_config()
     logger = create_logger(config)
     
+    # Procesar argumentos específicos - CORRECCIÓN DEL ERROR
+    specific_items = get(args, "item", [])
+    cli_exclusions = get(args, "exclude", [])
+    
+    # Aplanar vectores de vectores a vectores de strings
+    flat_specific_items = String[]
+    for item in specific_items
+        if item isa Vector
+            append!(flat_specific_items, item)
+        else
+            push!(flat_specific_items, item)
+        end
+    end
+    
+    flat_cli_exclusions = String[]
+    for exclusion in cli_exclusions
+        if exclusion isa Vector
+            append!(flat_cli_exclusions, exclusion)
+        else
+            push!(flat_cli_exclusions, exclusion)
+        end
+    end
+    
+    # Obtener timeout con valor por defecto - CORRECCIÓN DEL ERROR
+    timeout_arg = get(args, "timeout", nothing)
+    timeout_minutes = timeout_arg === nothing ? config.default_timeout_minutes : timeout_arg
+    
     state = SyncState(
         get(args, "subir", false) ? "subir" : "bajar",
         get(args, "dry-run", false),
@@ -1076,9 +1113,9 @@ function main()
         get(args, "checksum", false),
         get(args, "bwlimit", nothing),
         get(args, "crypto", false),
-        get(args, "timeout", config.default_timeout_minutes),
-        get(args, "item", String[]),
-        get(args, "exclude", String[]),
+        timeout_minutes,  # Usar el valor procesado
+        flat_specific_items,  # Usar el vector aplanado
+        flat_cli_exclusions,  # Usar el vector aplanado
         0, 0, 0, 0, 0, 0, 0, 0, 0,
         now()
     )
@@ -1127,8 +1164,11 @@ function main()
         
     catch e
         log_error(ctx, "Error crítico: $e")
+        bt = catch_backtrace()
+        println(stderr, "Backtrace:")
+        Base.show_backtrace(stderr, bt)
         remove_lock(ctx)
-        rethrow()
+        exit(1)
     end
 end
 
@@ -1144,9 +1184,9 @@ function show_help()
       --delete           Elimina en destino los archivos que no existan en origen
       --dry-run          Simula la operación sin hacer cambios reales
       --item ELEMENTO    Sincroniza solo el elemento especificado (puede usarse múltiples veces)
+      --exclude PATRON   Excluye archivos que coincidan con el patrón (puede usarse múltiples veces)
       --yes              No pregunta confirmación, ejecuta directamente
       --backup-dir       Usa el directorio de backup de solo lectura
-      --exclude PATRON   Excluye archivos que coincidan con el patrón (puede usarse múltiples veces)
       --overwrite        Sobrescribe todos los archivos en destino
       --checksum         Fuerza comparación con checksum (más lento)
       --bwlimit KB/s     Limita la velocidad de transferencia

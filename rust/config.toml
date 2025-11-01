@@ -70,7 +70,7 @@ exclusions = [
     "*Cache*/"
 ]
 
-[hosts.feynman.rtva.dnf]
+[hosts."feynman.rtva.dnf"]
 sync_items = [
     "Documentos/personal/orgfiles",
     "Documentos/proyectos/syncb",
@@ -117,3 +117,4 @@ exclusions = [
     ".cache/",
     "*Cache*/"
 ]
+

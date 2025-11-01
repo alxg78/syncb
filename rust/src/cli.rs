@@ -1,7 +1,6 @@
 use clap::Parser;
-use std::path::PathBuf;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone, Default)] // Añadido Clone y Default
 #[command(
     name = "syncb",
     version = "1.0.0",

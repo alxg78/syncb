@@ -1,13 +1,16 @@
 [package]
-name = "syncb-rs"
+name = "syncb"
 version = "1.0.0"
 edition = "2021"
-authors = ["Tu Nombre"]
+authors = ["J.Heras"]
 description = "Sincronización bidireccional entre directorio local y pCloud Drive"
 license = "MIT"
 readme = "README.md"
 
 [dependencies]
+tokio = { version = "1.0", features = ["full", "time"] }  # Fixed: Added missing tokio
+hostname = "0.3"  # Fixed: Added missing hostname crate
+nix = { version = "0.27", features = ["signal"] }  # Fixed: Added signal feature
 clap = { version = "4.4", features = ["derive"] }
 toml = "0.8"
 serde = { version = "1.0", features = ["derive"] }
@@ -30,8 +33,6 @@ bytesize = "1.3"
 indicatif = "0.17"
 crossbeam = "0.8"
 signal-hook = "0.3"
-nix = "0.27"
-tokio = "1.48.0"
 
 [dev-dependencies]
 tempfile = "3.8"

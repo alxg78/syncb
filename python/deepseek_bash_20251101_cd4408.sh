@@ -1,1 +1,0 @@
-./syncb.py --help

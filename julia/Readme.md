@@ -32,3 +32,50 @@ Script avanzado de sincronización bidireccional entre directorio local y pCloud
 2. Instala las dependencias de Julia:
 ```bash
 julia -e 'using Pkg; Pkg.add(["TOML", "ArgParse", "FilePathsBase"])'
+
+
+ARREGLAR 
+
+
+julia --project src/syncb.jl --bajar --verbose --dry-run
+
+
+
+# Sincronizar subiendo
+julia syncb.jl --subir
+
+# Sincronizar bajando
+julia syncb.jl --bajar
+
+# Modo simulación
+julia syncb.jl --subir --dry-run
+
+# Sincronizar elementos específicos
+julia syncb.jl --subir --item Documentos/ --item .config/
+
+# Con exclusión de patrones
+julia syncb.jl --subir --exclude "*.tmp" --exclude "temp/"
+
+# Con todas las opciones
+julia syncb.jl --subir --delete --yes --crypto --verbose
+
+
+
+# Sincronización completa con Crypto
+julia syncb.jl --subir --crypto --yes
+
+# Sincronización selectiva con límite de ancho de banda
+julia syncb.jl --bajar --item proyectos/ --bwlimit 1000 --timeout 10
+
+# Verificación sin cambios
+julia syncb.jl --subir --dry-run --verbose
+
+
+
+
+src/syncb.jl              # Script principal
+syncb_config.toml     # Configuración unificada
+README.md            # Documentación completa
+test/                # Tests unitarios
+  test_syncb.jl
+  runtests.jl
