@@ -1,0 +1,1 @@
+syncb --help

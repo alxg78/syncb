@@ -1,10 +1,14 @@
 [general]
-pcloud_mount_point = "~/pCloudDrive"
 local_dir = "~"
+pcloud_mount_point = "~/pCloudDrive"
 pcloud_backup_comun = "~/pCloudDrive/Backups/Backup_Comun"
 pcloud_backup_readonly = "~/pCloudDrive/pCloud Backup/feynman.sobremesa.dnf"
+log_file = "~/syncb.log"
+lock_file = "/tmp/syncb.lock"
+lock_timeout_seconds = 3600
+default_timeout_minutes = 30
 
-[crypto]
+[general.crypto]
 local_crypto_dir = "~/Crypto"
 remote_crypto_dir = "~/pCloudDrive/Crypto Folder"
 cloud_mount_check_file = "mount.check"
@@ -13,22 +17,8 @@ remote_keepass_dir = "~/pCloudDrive/Applications/Keepass2Android"
 local_crypto_hostname_rtva_dir = "~/Crypto/ficheros_sensibles"
 remote_crypto_hostname_rtva_dir = "~/pCloudDrive/Crypto Folder/ficheros_sensibles"
 
-[files]
-log_file = "~/syncb.log"
-lista_por_defecto_file = "syncb_directorios.ini"
-lista_especifica_por_defecto_file = "syncb_directorios_feynman.rtva.ini"
-exclusiones_file = "syncb_exclusiones.ini"
-symlinks_file = ".syncb_symlinks.meta"
-
-[lock]
-lock_file = "/tmp/syncb.lock"
-lock_timeout = 3600
-
-[hosts]
-feynman.rtva.dnf = { description = "Host específico RTVA" }
-
-[directorios]
-default = [
+[hosts.default]
+sync_items = [
     "Documentos/personal/orgfiles",
     "Documentos/proyectos/syncb",
     ".local/bin",
@@ -60,7 +50,28 @@ default = [
     "tmp/codigo_temp_pruebas"
 ]
 
-feynman.rtva.dnf = [
+exclusions = [
+    "*.tmp",
+    "*.temp",
+    "*.log",
+    "*.swp",
+    "*.bak",
+    "*.backup",
+    "*.qcow2",
+    "*.iso",
+    "Trash/",
+    ".Trash-*",
+    ".DS_Store",
+    "Thumbs.db",
+    "tmp_pruebas/",
+    "Descargas/",
+    "cache/",
+    ".cache/",
+    "*Cache*/"
+]
+
+[hosts.feynman.rtva.dnf]
+sync_items = [
     "Documentos/personal/orgfiles",
     "Documentos/proyectos/syncb",
     ".local/bin",
@@ -84,11 +95,10 @@ feynman.rtva.dnf = [
     "Documentos/proyectos/scripts_multiplataforma",
     "Plantillas",
     "Vínculos",
-    "tmp/codigo_temp_pruebas/python"
+    "tmp/codigo_temp_pruebas/julia"
 ]
 
-[exclusiones]
-patterns = [
+exclusions = [
     "*.tmp",
     "*.temp",
     "*.log",
@@ -107,15 +117,3 @@ patterns = [
     ".cache/",
     "*Cache*/"
 ]
-
-[permisos]
-archivos = {
-    "*.sh" = "755",
-    "*.py" = "755",
-    ".local/bin/*" = "755"
-}
-
-directorios = {
-    ".local/bin" = "755",
-    "tmp/codigo_temp_pruebas" = "777"
-}

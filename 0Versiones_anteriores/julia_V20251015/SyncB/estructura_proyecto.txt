@@ -1,0 +1,12 @@
+SyncB/
+├── Project.toml
+├── src/
+│   ├── SyncB.jl
+│   ├── config.jl
+│   ├── logging.jl
+│   ├── symblinks.jl
+│   ├── syncbidireccional.jl
+│   ├── argsparser.jl
+│   └── utils.jl
+└── test/
+    └── runtests.jl

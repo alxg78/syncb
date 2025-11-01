@@ -1,0 +1,17 @@
+
+## Características Implementadas
+
+Esta implementación en Rust mantiene todas las funcionalidades del script bash original y añade:
+
+1. **Tipado fuerte** con validaciones en tiempo de compilación
+2. **Manejo de errores robusto** con tipos de error específicos
+3. **Configuración centralizada** en TOML
+4. **Logging estructurado** con rotación automática
+5. **Ejecución asíncrona** para mejor rendimiento
+6. **Tests unitarios e de integración**
+7. **Documentación completa** de tipos y funciones
+8. **Validación de seguridad** contra path traversal
+9. **Gestión de recursos automática** (RAII)
+10. **Señalización para shutdown graceful**
+
+El código está estructurado modularmente para facilitar el mantenimiento y extensión futura.

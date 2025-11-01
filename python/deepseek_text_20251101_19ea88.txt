@@ -1,0 +1,7 @@
+syncb/
+├── syncb.py                 # Script principal
+├── syncb_config.toml        # Configuración ejemplo
+├── README.md               # Este archivo
+└── tests/                  # Tests unitarios
+    ├── test_syncb.py
+    └── test_config.py
