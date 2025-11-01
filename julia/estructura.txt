@@ -1,0 +1,6 @@
+syncb.jl              # Script principal
+syncb_config.toml     # Configuración unificada
+README.md            # Documentación completa
+test/                # Tests unitarios
+  test_syncb.jl
+  runtests.jl

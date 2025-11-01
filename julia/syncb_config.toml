@@ -1,0 +1,113 @@
+[general]
+pcloud_mount_point = "~/pCloudDrive"
+local_dir = "~"
+log_file = "~/syncb.log"
+lock_file = "/tmp/syncb.lock"
+lock_timeout = 3600
+default_timeout_minutes = 30
+cloud_mount_check_file = "mount.check"
+
+[backup_directories]
+comun = "Backups/Backup_Comun"
+readonly = "pCloud Backup/feynman.sobremesa.dnf"
+
+[crypto]
+local_crypto_dir = "~/Crypto"
+remote_crypto_dir = "Crypto Folder"
+local_keepass_dir = "~/Crypto/ficheros_sensibles/Keepass2Android"
+remote_keepass_dir = "Applications/Keepass2Android"
+
+[hosts.feynman.rtva.dnf]
+enabled = true
+local_crypto_host_dir = "~/Crypto/ficheros_sensibles"
+remote_crypto_host_dir = "Crypto Folder/ficheros_sensibles"
+
+[sync_directories.default]
+items = [
+    "Documentos/personal/orgfiles",
+    "Documentos/proyectos/syncb",
+    ".local/bin",
+    ".config/alacritty",
+    ".config/backup-configs",
+    ".config/calibre",
+    ".config/dotfiles",
+    ".config/doom",
+    ".config/emacs.mcfg",
+    ".config/keepassxc",
+    ".config/helix",
+    ".config/nvim",
+    ".config/systemd",
+    ".config/task",
+    ".config/vlc",
+    ".local/share/applications",
+    ".local/share/ispell",
+    ".local/share/nautilus",
+    ".local/share/remmina",
+    ".local/share/fonts",
+    ".local/share/todo.txt",
+    "Plantillas",
+    "Vínculos",
+    "Documentos",
+    "Imágenes",
+    "Música",
+    "Público",
+    "Vídeos",
+    "tmp/codigo_temp_pruebas"
+]
+
+[sync_directories.feynman.rtva.dnf]
+items = [
+    "Documentos/personal/orgfiles",
+    "Documentos/proyectos/syncb",
+    ".local/bin",
+    ".config/alacritty",
+    ".config/backup-configs",
+    ".config/dotfiles",
+    ".config/doom",
+    ".config/emacs.mcfg",
+    ".config/keepassxc",
+    ".config/helix",
+    ".config/nvim",
+    ".config/systemd",
+    ".config/task",
+    ".config/vlc",
+    ".local/share/applications",
+    ".local/share/ispell",
+    ".local/share/nautilus",
+    ".local/share/remmina",
+    ".local/share/fonts",
+    ".local/share/todo.txt",
+    "Documentos/proyectos/scripts_multiplataforma",
+    "Plantillas",
+    "Vínculos",
+    "tmp/codigo_temp_pruebas/julia"
+]
+
+[exclusions]
+patterns = [
+    "*.tmp",
+    "*.temp",
+    "*.log",
+    "*.swp",
+    "*.bak",
+    "*.backup",
+    "*.qcow2",
+    "*.iso",
+    "Trash/",
+    ".Trash-*",
+    ".DS_Store",
+    "Thumbs.db",
+    "tmp_pruebas/",
+    "Descargas/",
+    "cache/",
+    ".cache/",
+    "*Cache*/"
+]
+
+[permissions]
+executable_patterns = [
+    "*.sh",
+    "*.bash", 
+    "*.py",
+    "*.jl"
+]
